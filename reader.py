@@ -692,6 +692,9 @@ class Reader(QMainWindow):
         self.lib.set_progress(self.bid, ch, pos, self.view.progress(), self.view.pages)
 
     def closeEvent(self, e):
+        for timer in (self._save, self._auto, self._clock):
+            if timer.isActive():
+                timer.stop()
         self.save_pos()
         self.tts.stop()
         self._tts_clear()
