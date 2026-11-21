@@ -1,0 +1,41 @@
+name: docs-check
+
+on:
+  pull_request:
+    paths:
+      - "**.md"
+      - ".github/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    name: Check relative links
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check relative Markdown links exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r file; do
+            dir="$(dirname "$file")"
+            while IFS= read -r link; do
+              [ -z "$link" ] && continue
+              case "$link" in
+                http://*|https://*|mailto:*) continue ;;
+              esac
+              target="${link%%#*}"
+              [ -z "$target" ] && continue
+              if [ ! -e "$dir/$target" ]; then
+                echo "Broken link in $file: $link"
+                failed=1
+              fi
+            done < <(grep -oE '\]\([^)]+\)' "$file" | sed -E 's/^\]\(//; s/\)$//')
+          done < <(find . -name '*.md' -not -path './.git/*')
+          exit "$failed"

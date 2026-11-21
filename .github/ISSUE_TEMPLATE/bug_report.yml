@@ -1,0 +1,95 @@
+name: Сообщение об ошибке
+description: Сообщить о некорректной работе LightRead
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за сообщение. Пожалуйста, не указывайте пароли, токены и приватные URL.
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия LightRead
+      description: Версия из «О программе» или хеш коммита
+      placeholder: "1.1.0 / b889cef"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Окружение
+      placeholder: "Windows 11, Python 3.12, PySide6 6.11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Операционная система
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Другая
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - Библиотека / сканер
+        - Чтение / рендер
+        - PDF
+        - Заметки и закладки
+        - TTS
+        - OPDS / WebDAV
+        - Сборка / установка
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Открыть ...
+        2. Нажать ...
+        3. Увидеть ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи или traceback
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверки
+      options:
+        - label: Я проверил(а) актуальную версию из ветки master
+          required: false
+        - label: Я проверил(а) существующие issue
+          required: false
