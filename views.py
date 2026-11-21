@@ -604,7 +604,7 @@ class ReflowView(QWidget):
                         p.drawRect(sr)
                 p.restore()
             if self.st["brightness"] < 1.0:
-                p.fillRect(self.rect(), QColor(0, 0, 0, int((1 - self.st["brightness"]) * 205)))
+                p.fillRect(self.rect(), QColor(0, 0, 0, int((1 - self.st["brightness"]) * 90)))
         finally:
             p.end()
 
@@ -995,7 +995,7 @@ class FixedView(QWidget):
                     self.engine.request(i, int(min(4200, r.width() * dpr)),
                                         int(min(6000, r.height() * dpr)), inv, crop_on)
             if self.st["brightness"] < 1.0:
-                p.fillRect(self.rect(), QColor(0, 0, 0, int((1 - self.st["brightness"]) * 205)))
+                p.fillRect(self.rect(), QColor(0, 0, 0, int((1 - self.st["brightness"]) * 90)))
         finally:
             p.end()
 

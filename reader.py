@@ -114,7 +114,7 @@ class TuneBar(QWidget):
             cell("Ночь", cb2, "pdf_invert")
 
         cell("Тема", combo("theme", list(THEMES)), "theme")
-        cell("Яркость", slider("brightness", 0.3, 1.0, 100), "brightness")
+        cell("Яркость", slider("brightness", 0.55, 1.0, 100), "brightness")
         root.addStretch(1)
         reset = QPushButton("Сброс")
         reset.clicked.connect(lambda: self.changed.emit("__reset__", None))

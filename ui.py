@@ -150,8 +150,17 @@ class BookDelegate(QStyledItemDelegate):
         self._miss = set()
         self._c = chrome(theme(S["theme"]))
         self._dark = theme(S["theme"])["dark"]
+        self._theme = S["theme"]
+
+    def _sync_theme(self):
+        if self._theme != S["theme"]:
+            self._theme = S["theme"]
+            self._c = chrome(theme(self._theme))
+            self._dark = theme(self._theme)["dark"]
+            self._scaled.clear()
 
     def bust(self, bid=None):
+        self._theme = S["theme"]
         self._c = chrome(theme(S["theme"]))
         self._dark = theme(S["theme"])["dark"]
         if bid is None:
@@ -198,24 +207,26 @@ class BookDelegate(QStyledItemDelegate):
         col = QColor(FMT_COLOR.get(b["fmt"], "#6b7686"))
         g = QLinearGradient(box.topLeft(), box.bottomRight())
         if self._dark:
-            g.setColorAt(0.0, QColor("#252d3a")); g.setColorAt(1.0, QColor("#141920"))
-            tint_alpha, title_col = 62, QColor(255, 255, 255, 225)
-            label_col = col.lighter(165)
+            g.setColorAt(0.0, QColor("#111111")); g.setColorAt(1.0, QColor("#000000"))
+            tint_alpha, title_col = 12, QColor(255, 255, 255, 230)
+            label_col = QColor(255, 255, 255, 190)
+            line_col = QColor(255, 255, 255, 28)
         else:
-            g.setColorAt(0.0, QColor("#dbd4c7")); g.setColorAt(1.0, QColor("#c3baab"))
-            tint_alpha, title_col = 42, QColor("#33302a")
-            label_col = col.darker(150)
+            g.setColorAt(0.0, QColor("#ffffff")); g.setColorAt(1.0, QColor("#ededed"))
+            tint_alpha, title_col = 8, QColor(0, 0, 0, 225)
+            label_col = QColor(0, 0, 0, 170)
+            line_col = QColor(0, 0, 0, 28)
         p.setPen(Qt.NoPen)
         p.fillPath(self._round(box), g)
         tint = QColor(col); tint.setAlpha(tint_alpha)
         p.setBrush(tint)
         p.drawRoundedRect(box, 10, 10)
         # «корешок» и тонкая линия — заглушка похожа на обложку
-        spine = QColor(col); spine.setAlpha(150)
+        spine = QColor(col); spine.setAlpha(55)
         p.setBrush(spine)
         p.drawRoundedRect(QRectF(box.x(), box.y(), 8, box.height()), 4, 4)
         p.setBrush(Qt.NoBrush)  # иначе контур закрасит обложку ещё раз
-        p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        p.setPen(QPen(line_col, 1))
         p.drawLine(box.x() + 18, box.y() + 58, box.right() - 18, box.y() + 58)
         p.drawPath(self._round(box))
         p.setPen(title_col)
@@ -245,13 +256,14 @@ class BookDelegate(QStyledItemDelegate):
             p.drawPixmap(QRectF(x, y, s.width(), s.height()), s, QRectF(s.rect()))
             p.setClipping(False)
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(255, 255, 255, 34), 1))
+        p.setPen(QPen(QColor(self._c["border"]), 1))
         p.drawRoundedRect(box, 11, 11)
 
     def paint(self, p, opt, idx):
         b = idx.data(ROLE)
         if not b:
             return
+        self._sync_theme()
         c = self._c
         fg = QColor(c["text"]); dim = QColor(c["dim"])
         accent = QColor(c["accent"]); sel = QColor(c["sel"])
