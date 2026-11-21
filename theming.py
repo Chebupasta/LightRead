@@ -184,6 +184,14 @@ QLabel#Chip {
 }
 QLabel#EmptyState { background: transparent; color: %(dim)s; font-size: 14px; }
 
+/* Продолжить чтение */
+QFrame#ContinueBar {
+  background: %(chip)s; border: 1px solid %(border)s; border-left: 3px solid %(accent)s;
+  border-radius: 0;
+}
+QLabel#ContinueLabel { color: %(text)s; font-size: 13px; font-weight: 600; }
+QPushButton#ContinueBtn { background: %(accent)s; color: %(onaccent)s; border: 0; font-weight: 600; }
+
 QGroupBox {
   border: 1px solid %(border)s; border-radius: 12px;
   margin-top: 12px; padding: 12px 10px 10px;

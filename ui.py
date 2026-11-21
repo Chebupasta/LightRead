@@ -1,6 +1,7 @@
 """Библиотека: обложки, аккуратные карточки, сканер, диалоги."""
 import os, subprocess, sys, time, zipfile
 from collections import OrderedDict
+from datetime import date, timedelta
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect, QRectF, QUrl, QEvent, QTimer
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPainter, QPixmap,
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QVBoxLayout, QHBoxLayout, QFormLayout, QDialog, QDialogButtonBox,
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
-                               QListWidget, QListWidgetItem, QPushButton, QApplication, QSlider)
+                               QListWidget, QListWidgetItem, QPushButton, QApplication, QSlider, QFrame)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, ACCENT, ACCENT2, OK, WARN, BAD,
                     human, hms, norm, theme)
@@ -461,25 +462,39 @@ class SettingsDialog(QDialog):
 
 
 class InfoDialog(QDialog):
+    """Карточка книги: редактируемые метаданные, метки, своя обложка."""
+
     def __init__(self, lib, bid, parent=None):
         super().__init__(parent)
         self.lib, self.bid = lib, bid
         b = lib.book(bid)
-        self.setWindowTitle("О книге"); self.resize(600, 520)
+        self.setWindowTitle("О книге"); self.resize(640, 600)
+        self._cover_data = None
         lay = QVBoxLayout(self)
         top = QHBoxLayout(); lay.addLayout(top)
-        cov = QLabel(); pm = QPixmap(str(COVERS / f"{bid}.png"))
+        self.cov = QLabel(); pm = QPixmap(str(COVERS / f"{bid}.png"))
         if not pm.isNull():
-            cov.setPixmap(pm.scaled(160, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        top.addWidget(cov)
-        txt = QLabel(f"<h3>{b['title']}</h3><b>Автор:</b> {b['author'] or '—'}<br>"
-                     f"<b>Серия:</b> {b['series'] or '—'}<br>"
-                     f"<b>Формат:</b> {b['fmt'].upper()} · {human(b['size'])}<br>"
-                     f"<b>Язык:</b> {b['lang'] or '—'}<br><b>Прогресс:</b> {b['progress'] * 100:.1f}%<br>"
-                     f"<b>Чтение:</b> {hms(b['seconds'])}")
-        txt.setWordWrap(True); top.addWidget(txt, 1)
-        ann = QLabel(b["annotation"] or ""); ann.setWordWrap(True)
-        lay.addWidget(ann)
+            self.cov.setPixmap(pm.scaled(160, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        top.addWidget(self.cov)
+        form = QFormLayout(); top.addLayout(form, 1)
+        self.f_title = QLineEdit(b["title"] or "")
+        self.f_author = QLineEdit(b["author"] or "")
+        self.f_series = QLineEdit(b["series"] or "")
+        self.f_seq = QLineEdit(str(b["seq"] or ""))
+        self.f_lang = QLineEdit(b["lang"] or "")
+        self.f_genres = QLineEdit(b["genres"] or "")
+        for label, w in (("Название", self.f_title), ("Автор", self.f_author),
+                         ("Серия", self.f_series), ("Номер в серии", self.f_seq),
+                         ("Язык", self.f_lang), ("Жанры", self.f_genres)):
+            form.addRow(label + ":", w)
+        self.f_ann = QLineEdit(b["annotation"] or "")
+        self.f_ann.setPlaceholderText("Аннотация")
+        form.addRow("Аннотация:", self.f_ann)
+        info = QLabel(f"<b>Формат:</b> {b['fmt'].upper()} · {human(b['size'])}<br>"
+                      f"<b>Прогресс:</b> {b['progress'] * 100:.1f}%<br>"
+                      f"<b>Чтение:</b> {hms(b['seconds'])}<br>"
+                      f"<b>Путь:</b> {b['path']}")
+        info.setWordWrap(True); lay.addWidget(info)
         row = QHBoxLayout()
         self.status = QComboBox(); self.status.addItems(["new", "reading", "read", "planned"])
         self.status.setCurrentText(b["status"])
@@ -488,16 +503,37 @@ class InfoDialog(QDialog):
         self.fav.toggled.connect(lambda v: lib.set_field(bid, favorite=int(v)))
         row.addWidget(QLabel("Статус:")); row.addWidget(self.status); row.addWidget(self.fav); row.addStretch()
         lay.addLayout(row)
-        self.colls = QListWidget(); self.colls.setMaximumHeight(130)
+
+        side = QHBoxLayout()
+        cbox = QVBoxLayout(); cbox.addWidget(QLabel("Коллекции:"))
+        self.colls = QListWidget(); self.colls.setMaximumHeight(110)
         have = lib.book_colls(bid)
         for c in lib.colls():
             it = QListWidgetItem(c["name"]); it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked if c["id"] in have else Qt.Unchecked)
             it.setData(Qt.UserRole, c["id"]); self.colls.addItem(it)
         self.colls.itemChanged.connect(self.coll_changed)
-        lay.addWidget(QLabel("Коллекции:")); lay.addWidget(self.colls)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject); bb.accepted.connect(self.accept)
+        cbox.addWidget(self.colls)
+        tbox = QVBoxLayout(); tbox.addWidget(QLabel("Метки:"))
+        self.tags = QListWidget(); self.tags.setMaximumHeight(110)
+        have_tags = lib.book_tags(bid)
+        for t in lib.tags():
+            it = QListWidgetItem(t["name"]); it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Checked if t["id"] in have_tags else Qt.Unchecked)
+            it.setData(Qt.UserRole, t["id"]); self.tags.addItem(it)
+        self.tags.itemChanged.connect(self.tag_changed)
+        tbox.addWidget(self.tags)
+        side.addLayout(cbox); side.addLayout(tbox)
+        lay.addLayout(side)
+
+        newtag = QPushButton("Новая метка…"); newtag.clicked.connect(self.new_tag)
+        lay.addWidget(newtag, 0, Qt.AlignLeft)
+        cover = QPushButton("Загрузить свою обложку…"); cover.clicked.connect(self.pick_cover)
+        lay.addWidget(cover, 0, Qt.AlignLeft)
+        bb = QDialogButtonBox()
+        bb.addButton("Сохранить", QDialogButtonBox.AcceptRole)
+        bb.addButton("Закрыть", QDialogButtonBox.RejectRole)
+        bb.accepted.connect(self.save); bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 
     def coll_changed(self, it):
@@ -506,6 +542,101 @@ class InfoDialog(QDialog):
             self.lib.coll_add(cid, self.bid)
         else:
             self.lib.coll_del(cid, self.bid)
+
+    def tag_changed(self, it):
+        self.lib.tag_book(it.data(Qt.UserRole), self.bid, it.checkState() == Qt.Checked)
+
+    def new_tag(self):
+        name, ok = QInputDialog.getText(self, "Метка", "Название метки:")
+        if ok and name.strip():
+            tid = self.lib.new_tag(name.strip())
+            it = QListWidgetItem(name.strip())
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Checked); it.setData(Qt.UserRole, tid)
+            self.tags.addItem(it)
+            self.lib.tag_book(tid, self.bid, True)
+
+    def pick_cover(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Обложка книги", "", "Изображения (*.png *.jpg *.jpeg *.webp)")
+        if not p:
+            return
+        try:
+            data = open(p, "rb").read()
+            if not QImage.fromData(data).isNull():
+                self._cover_data = data
+                pm = QPixmap.fromImage(QImage.fromData(data))
+                self.cov.setPixmap(pm.scaled(160, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        except Exception:
+            pass
+
+    def save(self):
+        try:
+            seq = float(self.f_seq.text().replace(",", ".")) if self.f_seq.text().strip() else 0.0
+        except ValueError:
+            seq = 0.0
+        self.lib.set_meta(self.bid, title=self.f_title.text().strip(),
+                          author=self.f_author.text().strip(), series=self.f_series.text().strip(),
+                          seq=seq, lang=self.f_lang.text().strip(), genres=self.f_genres.text().strip(),
+                          annotation=self.f_ann.text().strip())
+        if self._cover_data:
+            save_cover(self.bid, self._cover_data)
+        self.accept()
+
+
+class StatsHeat(QWidget):
+    """Тепловая карта чтения за 13 недель."""
+
+    def __init__(self, days, parent=None):
+        super().__init__(parent)
+        self.days = days
+        self.setMinimumSize(210, 112)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        c = chrome(theme(S["theme"]))
+        n = 91
+        side = 11
+        step = 14
+        today = date.today()
+        for i in range(n):
+            d = today - timedelta(days=n - 1 - i)
+            secs = float(self.days.get(d.isoformat(), 0) or 0)
+            col = QColor(c["accent"] if secs > 0 else c["track"])
+            if secs > 0:
+                col.setAlpha(min(255, 90 + int(min(1.0, secs / 3600.0) * 165)))
+            p.setPen(Qt.NoPen); p.setBrush(col)
+            x = (i // 7) * step
+            y = (i % 7) * step
+            p.drawRoundedRect(QRectF(x, y, side, side), 3, 3)
+        p.end()
+
+
+class StatsDialog(QDialog):
+    def __init__(self, lib, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Статистика чтения"); self.resize(460, 300)
+        rows = lib.stats()
+        days = {r["day"]: (r["s"] or 0) for r in rows}
+        total = lib.q("SELECT SUM(seconds) s FROM books")[0]["s"] or 0
+        pages = sum(int(r["p"] or 0) for r in rows)
+        streak = 0
+        d = date.today()
+        while days.get(d.isoformat(), 0) > 0:
+            streak += 1; d -= timedelta(days=1)
+        lay = QVBoxLayout(self)
+        head = QLabel(f"<h3>Статистика чтения</h3>")
+        lay.addWidget(head)
+        lay.addWidget(QLabel(f"Всего времени: <b>{hms(total)}</b> · Страниц: <b>{pages}</b> · "
+                             f"Серия дней: <b>{streak}</b>"))
+        lay.addWidget(QLabel("Активность за последние 13 недель:"))
+        lay.addWidget(StatsHeat(days, self))
+        if rows:
+            best = max(rows, key=lambda r: r["s"] or 0)
+            lay.addWidget(QLabel(f"Самый продуктивный день: <b>{best['day']}</b> — {hms(best['s'])}"))
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject); bb.accepted.connect(self.accept)
+        lay.addWidget(bb)
 
 
 class Win(QMainWindow):
@@ -599,9 +730,38 @@ class Win(QMainWindow):
         self.list.viewport().installEventFilter(self)
         sp = QSplitter(); sp.addWidget(self.tree); sp.addWidget(self.list)
         sp.setStretchFactor(1, 1); sp.setSizes([240, 1020])
-        self.setCentralWidget(sp)
+        central = QWidget(); box = QVBoxLayout(central)
+        box.setContentsMargins(0, 0, 0, 0); box.setSpacing(0)
+        self.cont = QFrame(); self.cont.setObjectName("ContinueBar")
+        ch = QHBoxLayout(self.cont); ch.setContentsMargins(14, 9, 14, 9)
+        self.cont_label = QLabel(); self.cont_label.setObjectName("ContinueLabel")
+        btn = QPushButton("Продолжить →"); btn.setObjectName("ContinueBtn")
+        btn.clicked.connect(self.continue_reading)
+        ch.addWidget(self.cont_label, 1); ch.addWidget(btn)
+        self.cont.hide()
+        box.addWidget(self.cont); box.addWidget(sp, 1)
+        self.setCentralWidget(central)
         self.pb = QProgressBar(); self.pb.setMaximumWidth(220); self.pb.hide()
         self.statusBar().addPermanentWidget(self.pb)
+
+    def update_continue(self):
+        rows = self.lib.q("SELECT id,title,author,progress FROM books "
+                          "WHERE last_read>0 AND progress>0.001 AND progress<0.995 "
+                          "ORDER BY last_read DESC LIMIT 1")
+        if not rows:
+            self.cont.hide()
+            return
+        r = rows[0]
+        self._continue_id = r["id"]
+        name = r["title"] or "Без названия"
+        author = f" · {r['author']}" if r["author"] else ""
+        self.cont_label.setText(f"Продолжить чтение: {name}{author} · {r['progress'] * 100:.0f}%")
+        self.cont.show()
+
+    def continue_reading(self):
+        bid = getattr(self, "_continue_id", None)
+        if bid:
+            self.open_book(bid)
 
     def build_tree(self):
         self.tree.blockSignals(True)
@@ -622,6 +782,9 @@ class Win(QMainWindow):
         node(root, "Непрочитанные", dict(kind="unread"))
         node(root, "Избранное", dict(kind="fav"))
         node(root, "Недавние", dict(kind="recent"))
+        tn = node(root, "Метки", dict(kind="tags"))
+        for t in self.lib.tags():
+            node(tn, f"{t['name']} ({t['n']})", dict(kind="tag", value=t["id"]), t["name"])
         cn = node(root, "Коллекции", dict(kind="colls"))
         for c in self.lib.colls():
             node(cn, c["name"], dict(kind="coll", value=c["id"], name=c["name"]))
@@ -642,7 +805,7 @@ class Win(QMainWindow):
 
     def nav(self, it, _):
         f = it.data(0, Qt.UserRole)
-        self.flt = f if f and f.get("kind") not in ("colls", "authors", "series", "fmts", "folders") else None
+        self.flt = f if f and f.get("kind") not in ("colls", "tags", "authors", "series", "fmts", "folders") else None
         self.reload()
 
     def nav_menu(self, pos):
@@ -650,14 +813,22 @@ class Win(QMainWindow):
         f = it.data(0, Qt.UserRole) if it else None
         m = QMenu(self)
         m.addAction("Новая коллекция…", self.new_coll)
+        m.addAction("Новая метка…", self.new_tag)
         if f and f.get("kind") == "coll":
             m.addAction("Удалить коллекцию", lambda: (self.lib.coll_drop(f["value"]), self.reload()))
+        if f and f.get("kind") == "tag":
+            m.addAction("Удалить метку", lambda: (self.lib.tag_drop(f["value"]), self.reload()))
         m.exec(self.tree.viewport().mapToGlobal(pos))
 
     def new_coll(self):
         name, ok = QInputDialog.getText(self, "Коллекция", "Название:")
         if ok and name.strip():
             self.lib.new_coll(name.strip()); self.reload()
+
+    def new_tag(self):
+        name, ok = QInputDialog.getText(self, "Метка", "Название метки:")
+        if ok and name.strip():
+            self.lib.new_tag(name.strip()); self.reload()
 
     def reload(self):
         self.build_tree()
@@ -667,6 +838,7 @@ class Win(QMainWindow):
             it = QStandardItem(); it.setData(dict(r), ROLE); it.setEditable(False)
             self.model.appendRow(it)
         self.statusBar().showMessage(f"Книг: {len(rows)}")
+        self.update_continue()
         self.empty.setVisible(not rows)
         self.empty.resize(self.list.viewport().size())
         self.list.viewport().update()
@@ -864,13 +1036,7 @@ class Win(QMainWindow):
             self.set_view(S["view"]); self.reload()
 
     def stats(self):
-        rows = self.lib.stats()
-        total = self.lib.q("SELECT SUM(seconds) s FROM books")[0]["s"] or 0
-        txt = f"<h3>Статистика чтения</h3><p>Всего: <b>{hms(total)}</b></p><table cellpadding=4>"
-        txt += "<tr><th>Дата</th><th>Время</th><th>Страниц</th></tr>"
-        for r in rows:
-            txt += f"<tr><td>{r['day']}</td><td>{hms(r['s'])}</td><td>{int(r['p'] or 0)}</td></tr>"
-        QMessageBox.information(self, "Статистика", txt + "</table>")
+        StatsDialog(self.lib, self).exec()
 
     def backup(self):
         p, _ = QFileDialog.getSaveFileName(self, "Резервная копия", "lightread-backup.zip", "ZIP (*.zip)")

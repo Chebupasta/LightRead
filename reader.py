@@ -448,10 +448,16 @@ class Reader(QMainWindow):
         it = self.marks.itemAt(pos)
         if not it:
             return
+        r = it.data(Qt.UserRole)
         m = QMenu(self)
-        m.addAction("Удалить закладку",
-                    lambda: (self.lib.mark_del(it.data(Qt.UserRole)["id"]), self.fill_marks()))
+        m.addAction("Переименовать…", lambda: self.rename_mark(r))
+        m.addAction("Удалить закладку", lambda: (self.lib.mark_del(r["id"]), self.fill_marks()))
         m.exec(self.marks.mapToGlobal(pos))
+
+    def rename_mark(self, r):
+        name, ok = QInputDialog.getText(self, "Закладка", "Название:", text=r["title"] or "")
+        if ok and name.strip():
+            self.lib.mark_upd(r["id"], title=name.strip()); self.fill_marks()
 
     def fill_notes(self):
         self.notes.clear()
@@ -605,6 +611,10 @@ class Reader(QMainWindow):
         else:
             m.addAction("Закладка", self.add_mark)
             m.addAction("Поиск в книге", lambda: self.open_panel(3))
+            if not self.fixed:
+                m.addAction("Выделить всё и скопировать",
+                            lambda: (self.view.select_all(),
+                                     QGuiApplication.clipboard().setText(self.view.selection_text())))
             m.addAction("Копировать страницу",
                         lambda: QGuiApplication.clipboard().setText(self.view.page_text()))
             if self.fixed:
