@@ -214,6 +214,37 @@ QPushButton#ContinueBtn {
   border: 0; border-radius: %(radius.sm)s;
 }
 
+/* ── Главный экран ─────────────────────────────────────────────────── */
+QWidget#HomePage { background: %(bg.canvas)s; }
+QLabel#HomeTitle {
+  color: %(text.primary)s; font-size: %(font.xl)s;
+  font-weight: %(font.weight.medium)s;
+}
+QLabel#SectionTitle {
+  color: %(text.secondary)s; font-size: %(font.lg)s;
+  font-weight: %(font.weight.medium)s;
+}
+QLabel#HomeSubtle { color: %(text.tertiary)s; font-size: %(font.sm)s; }
+QFrame#ContinueCard {
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  border-left: 2px solid %(accent.default)s; border-radius: %(radius.md)s;
+}
+QFrame#GoalCard {
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.sm)s;
+}
+QPushButton#RecentCard {
+  background: %(bg.field)s; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.sm)s; padding: 8px;
+  color: %(text.primary)s; font-size: %(font.sm)s; text-align: left;
+}
+QPushButton#RecentCard:hover { background: %(bg.hover)s; border-color: %(accent.default)s; }
+QPushButton#HomeAction {
+  background: %(bg.field)s; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.sm)s; padding: 6px 12px; color: %(text.secondary)s;
+}
+QPushButton#HomeAction:hover { background: %(bg.hover)s; color: %(text.primary)s; }
+
 QGroupBox {
   border: 1px solid %(border.subtle)s; border-radius: %(radius.md)s;
   margin-top: 10px; padding: 10px 8px 8px;
