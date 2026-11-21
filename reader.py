@@ -692,6 +692,9 @@ class Reader(QMainWindow):
         self.lib.set_progress(self.bid, ch, pos, self.view.progress(), self.view.pages)
 
     def closeEvent(self, e):
+        main = self.window()
+        if main is not self and getattr(main, "_reading_full", False):
+            main.reader_fullscreen(self)
         for timer in (self._save, self._auto, self._clock):
             if timer.isActive():
                 timer.stop()

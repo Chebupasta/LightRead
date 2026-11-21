@@ -1,5 +1,6 @@
 """TTS (Qt TextToSpeech) и офлайн-словарь StarDict."""
 import base64, gzip, re, struct, urllib.request
+from urllib.parse import urljoin
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal
@@ -167,12 +168,13 @@ class Opds:
             return response.read()
 
     def feed(self, url=None):
-        root = ET.fromstring(self._get(url or self.url))
+        base = url or self.url
+        root = ET.fromstring(self._get(base))
         entries = []
         for el in root.findall(self.NS + "entry"):
             links = {}
             for link in el.findall(self.NS + "link"):
-                links[link.get("rel", "alternate")] = link.get("href", "")
+                links[link.get("rel", "alternate")] = urljoin(base, link.get("href", ""))
             author_el = el.find(self.NS + "author")
             author = (author_el.findtext(self.NS + "name") or "") if author_el is not None else ""
             entries.append(dict(title=(el.findtext(self.NS + "title") or "").strip(),
@@ -181,7 +183,7 @@ class Opds:
         nxt = ""
         for link in root.findall(self.NS + "link"):
             if link.get("rel") == "next":
-                nxt = link.get("href", "")
+                nxt = urljoin(base, link.get("href", ""))
                 break
         return entries, nxt
 

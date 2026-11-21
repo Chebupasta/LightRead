@@ -157,6 +157,17 @@ class TestIntegrations(unittest.TestCase):
         self.assertEqual(entries[0]["author"], "Author")
         self.assertIn("http://opds-spec.org/acquisition", entries[0]["links"])
 
+    def test_opds_relative_links(self):
+        feed = TMP / "relative.atom"
+        feed.write_text('''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+<title>Test</title><link rel="next" href="page2.xml"/>
+<entry><title>Book</title><id>b1</id>
+<link rel="http://opds-spec.org/acquisition" href="books/book.epub"/></entry></feed>''',
+                        encoding="utf-8")
+        entries, nxt = services.Opds(feed.as_uri()).feed()
+        self.assertTrue(entries[0]["links"]["http://opds-spec.org/acquisition"].endswith("books/book.epub"))
+        self.assertTrue(nxt.endswith("page2.xml"))
+
     def test_update_check_parse(self):
         release = TMP / "release.json"
         release.write_text('{"tag_name":"v2.0","html_url":"https://example.com/r","body":"notes"}',
@@ -196,6 +207,14 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertFalse(self.win.cont.isHidden())
         self.assertEqual(self.win._continue_id, self.bid)
         self.assertGreaterEqual(self.win.home.recent_layout.count(), 1)
+
+    def test_fullscreen_restores_on_reader_close(self):
+        self.win.open_book(self.bid)
+        reader = self.win.reader
+        reader.fullscreen()
+        self.assertTrue(self.win.isFullScreen())
+        reader.close()
+        self.assertFalse(self.win.isFullScreen())
 
     def test_nav_and_toast(self):
         self.assertIsInstance(self.win.tree.itemDelegate(), ui.NavDelegate)
