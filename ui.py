@@ -963,6 +963,7 @@ class Win(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка открытия", f"{type(e).__name__}: {e}"); return
         r.setAttribute(Qt.WA_DeleteOnClose)
+        r.closed.connect(self.reader_closed)
         r.destroyed.connect(lambda _=None, rr=r: self.reader_closed(rr))
         self.readers.append(r)
         self.reader = r
