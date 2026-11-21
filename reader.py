@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget
 
 from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK
 from formats import open_source, FormatError, plain
-from views import ReflowView, FixedView, pick_font
+from views import ReflowView, FixedView, pick_font, chapter_text
 from services import Tts, StarDict
 from theming import apply_theme, chrome
 
@@ -216,6 +216,8 @@ class ThumbDelegate(QStyledItemDelegate):
 
 
 class Reader(QMainWindow):
+    closed = Signal(object)  # уведомление библиотеки о закрытии окна
+
     def __init__(self, lib, row):
         super().__init__()
         self.lib, self.bid = lib, row["id"]
@@ -564,6 +566,7 @@ class Reader(QMainWindow):
             pass
         apply_theme(S["theme"], force=True)
         e.accept()
+        self.closed.emit(self)
 
     def chapter_step(self, d):
         if self.fixed:
@@ -658,7 +661,7 @@ class Reader(QMainWindow):
             else:
                 t = cache.get(i)
                 if t is None:
-                    t = plain(self.src.chapter(i).html)
+                    t = chapter_text(self.src.chapter(i).html)
                     cache[i] = t
                     if len(cache) > 80:
                         cache.popitem(last=False)

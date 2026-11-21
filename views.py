@@ -25,6 +25,18 @@ def pick_font(pref=""):
     return QFont().family()
 
 
+def chapter_text(html):
+    """Текст главы так же, как его видит QTextDocument ридера.
+
+    formats.plain() добавляет переводы строк после </p> и по-другому
+    обрабатывает таблицы/списки, поэтому смещения поиска из-за этого
+    не совпадали с позициями в открытой книге.
+    """
+    doc = QTextDocument()
+    doc.setHtml("<body>" + html + "</body>")
+    return doc.toPlainText()
+
+
 def pdf_page_size(doc, i):
     for name in ("pagePointSize", "pageSize"):
         fn = getattr(doc, name, None)
@@ -935,12 +947,27 @@ class FixedView(QWidget):
                     continue
                 visible.append(i)
                 sx, sy = r.x() - self.ox, r.y() - self.oy
+                cr = self.engine.crop.get(i) if crop_on else None
                 if self.st["pdf_shadow"]:
                     p.setPen(Qt.NoPen)
                     p.setBrush(QColor(0, 0, 0, 46))
                     p.drawRoundedRect(QRectF(sx + 3, sy + 5, r.width(), r.height()), 3, 3)
                     p.setBrush(QColor(0, 0, 0, 30))
                     p.drawRoundedRect(QRectF(sx + 1, sy + 2, r.width(), r.height()), 3, 3)
+                if cr is not None and cr.width() > 0.02 and cr.height() > 0.02:
+                    # рендерим ВСЮ страницу с запасом, рисуем только область обрезки
+                    pw = int(min(6000, max(1, round(r.width() * dpr / cr.width()))))
+                    ph = int(min(6000, max(1, round(r.height() * dpr / cr.height()))))
+                    key = self.engine.request(i, pw, ph, inv, True, front=True)
+                    img = self.engine.get(key)
+                    if img is None and not self.engine.path:
+                        img = self.engine.sync_render(i, pw, ph, inv)
+                    if img is not None and not img.isNull():
+                        pm = self._pixmap(key, img, dpr)
+                        lw, lh = pm.width(), pm.height()  # логические размеры с учётом dpr
+                        src = QRectF(cr.x() * lw, cr.y() * lh, cr.width() * lw, cr.height() * lh)
+                        p.drawPixmap(QRectF(sx, sy, r.width(), r.height()), pm, src)
+                        continue
                 pw = int(min(4200, max(1, r.width() * dpr)))
                 ph = int(min(6000, max(1, r.height() * dpr)))
                 key = self.engine.request(i, pw, ph, inv, crop_on, front=True)

@@ -126,7 +126,8 @@ class Library:
                       "GROUP BY t.id ORDER BY t.name")
 
     def new_tag(self, name):
-        return self.x("INSERT OR IGNORE INTO tags(name) VALUES(?)", (name,))
+        row = self.q("SELECT id FROM tags WHERE name=?", (name,))
+        return row[0]["id"] if row else self.x("INSERT INTO tags(name) VALUES(?)", (name,))
 
     def tag_drop(self, tid):
         self.x("DELETE FROM book_tag WHERE tag=?", (tid,)); self.x("DELETE FROM tags WHERE id=?", (tid,))
@@ -162,7 +163,9 @@ class Library:
 
     # ── коллекции ──
     def colls(self): return self.q("SELECT * FROM coll ORDER BY name COLLATE NOCASE")
-    def new_coll(self, name): return self.x("INSERT OR IGNORE INTO coll(name) VALUES(?)", (name,))
+    def new_coll(self, name):
+        row = self.q("SELECT id FROM coll WHERE name=?", (name,))
+        return row[0]["id"] if row else self.x("INSERT INTO coll(name) VALUES(?)", (name,))
     def coll_add(self, cid, bid): self.x("INSERT OR IGNORE INTO coll_book VALUES(?,?)", (cid, bid))
     def coll_del(self, cid, bid): self.x("DELETE FROM coll_book WHERE coll=? AND book=?", (cid, bid))
     def coll_drop(self, cid):
