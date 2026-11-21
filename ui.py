@@ -3,16 +3,19 @@ import hashlib, json, os, subprocess, sys, zipfile
 from collections import OrderedDict
 from datetime import date, timedelta
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QRectF, QUrl, QEvent, QTimer, QFileSystemWatcher
+from PySide6.QtCore import (Qt, QThread, Signal, QSize, QRectF, QUrl, QEvent, QTimer,
+                            QFileSystemWatcher, QPropertyAnimation, QPoint)
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPainter, QPixmap,
                            QKeySequence, QStandardItem, QStandardItemModel, QShortcut, QIcon,
                            QLinearGradient, QPen, QPainterPath)
 from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QStyle, QTreeWidget,
+                               QStyleOptionViewItem,
                                QTreeWidgetItem, QSplitter, QToolBar, QLineEdit, QComboBox, QWidget,
                                QVBoxLayout, QHBoxLayout, QFormLayout, QDialog, QDialogButtonBox,
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
-                               QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView)
+                               QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
+                                QGraphicsOpacityEffect)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS,
                     human, hms, norm, theme)
@@ -169,6 +172,7 @@ class BookDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.grid = True
+        self.hover = None
         self._pix = OrderedDict()
         self._scaled = OrderedDict()
         self._miss = set()
@@ -329,6 +333,10 @@ class BookDelegate(QStyledItemDelegate):
         r = QRectF(opt.rect).adjusted(10, 10, -10, -10)
         if opt.state & QStyle.State_Selected:
             p.setPen(Qt.NoPen); p.setBrush(QColor(c["bg.selected"]))
+            p.drawRoundedRect(QRectF(opt.rect).adjusted(2, 2, -2, -2), 4, 4)
+        elif b["id"] == self.hover:
+            col = QColor(c["accent.default"]); col.setAlpha(110)
+            p.setPen(QPen(col, 1)); p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(QRectF(opt.rect).adjusted(2, 2, -2, -2), 4, 4)
         pm = self.pix(b["id"])
 
@@ -935,6 +943,94 @@ class AllNotesDialog(QDialog):
                 break
 
 
+class NavDelegate(QStyledItemDelegate):
+    """Аккуратная подсветка дерева навигации: точка роли и акцентная полоса."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._theme = S["theme"]
+        th = theme(self._theme)
+        self._c = chrome(th)
+
+    def paint(self, p, opt, index):
+        if self._theme != S["theme"]:
+            self._theme = S["theme"]
+            self._c = chrome(theme(self._theme))
+        c = self._c
+        f = index.data(Qt.UserRole)
+        kind = f.get("kind") if isinstance(f, dict) else ""
+        colors = {
+            "status": c["accent.default"],
+            "fav": c["status.warning"],
+            "tag": c["data.djvu"],
+            "coll": c["data.docx"],
+            "smart": c["status.success"],
+            "folder": c["text.tertiary"],
+        }
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing, True)
+        view = QStyleOptionViewItem(opt)
+        view.rect = opt.rect.adjusted(14, 0, 0, 0)
+        super().paint(p, view, index)
+        r = QRectF(opt.rect)
+        if kind:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(colors.get(kind, c["text.tertiary"])))
+            p.drawEllipse(QRectF(r.x() + 4, r.center().y() - 3, 6, 6))
+        if opt.state & QStyle.State_Selected:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(c["accent.default"]))
+            p.drawRoundedRect(QRectF(r.x() + 1, r.y() + 3, 2, r.height() - 6), 1, 1)
+        p.restore()
+
+
+class Toast(QFrame):
+    """Неблокирующее уведомление поверх окна."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("Toast")
+        self.setAccessibleName("Уведомление")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(12, 8, 12, 8)
+        self.label = QLabel(self)
+        self.label.setWordWrap(True)
+        lay.addWidget(self.label)
+        self.effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.effect)
+        self.anim = QPropertyAnimation(self.effect, b"opacity", self)
+        self.anim.setDuration(180)
+        self.anim.finished.connect(self._on_anim)
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._fade_out)
+        self.hide()
+
+    def notify(self, text):
+        self.label.setText(text)
+        self.adjustSize()
+        parent = self.parentWidget()
+        if parent is not None:
+            self.move(QPoint(max(12, parent.width() - self.width() - 18), 52))
+        self.show()
+        self.raise_()
+        self.anim.stop()
+        self.anim.setStartValue(0.0)
+        self.anim.setEndValue(1.0)
+        self.anim.start()
+        self.timer.start(2600)
+
+    def _fade_out(self):
+        self.anim.stop()
+        self.anim.setStartValue(1.0)
+        self.anim.setEndValue(0.0)
+        self.anim.start()
+
+    def _on_anim(self):
+        if self.effect.opacity() < 0.05:
+            self.hide()
+
+
 class SmartDialog(QDialog):
     def __init__(self, lib, rule=None, parent=None):
         super().__init__(parent)
@@ -1149,11 +1245,13 @@ class Win(QMainWindow):
 
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setMinimumWidth(170)
         self.tree.setAccessibleName("Навигация по библиотеке")
+        self.tree.setItemDelegate(NavDelegate(self.tree))
         self.tree.itemClicked.connect(self.nav)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.nav_menu)
         self.model = QStandardItemModel(self)
         self.list = QListView(); self.list.setModel(self.model)
+        self.list.viewport().setMouseTracking(True)
         self.list.setAccessibleName("Книги библиотеки")
         self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.deleg = BookDelegate(self.list)
@@ -1342,6 +1440,21 @@ class Win(QMainWindow):
             self.model.appendRow(it)
         self.statusBar().showMessage(f"Книг: {len(rows)}")
         self.update_continue()
+        if not rows:
+            query = self.q.text().strip()
+            if query:
+                self.empty.setText(f"Ничего не найдено по запросу\n«{query}»\n\n"
+                                   "Измените запрос или очистите поиск")
+            elif self.flt and self.flt.get("kind") == "smart":
+                self.empty.setText("Под это правило пока нет книг\n\n"
+                                   "Измените условия умной коллекции")
+            elif self.flt:
+                self.empty.setText("Здесь пока нет книг\n\n"
+                                   "Добавьте книги или выберите другой фильтр")
+            else:
+                self.empty.setText("Пока нет книг\n\n"
+                                   "Добавьте файл через «Файл → Открыть файл…»\n"
+                                   "или перетащите книгу прямо в окно")
         self.empty.setVisible(not rows)
         self.empty.resize(self.list.viewport().size())
         self.list.viewport().update()
@@ -1356,9 +1469,21 @@ class Win(QMainWindow):
 
     def eventFilter(self, obj, ev):
         try:
-            if obj is self.list.viewport() and ev.type() == QEvent.Resize:
-                self.empty.resize(self.list.viewport().size())
-                self.list.scheduleDelayedItemsLayout()
+            if obj is self.list.viewport():
+                if ev.type() == QEvent.Resize:
+                    self.empty.resize(self.list.viewport().size())
+                    self.list.scheduleDelayedItemsLayout()
+                elif ev.type() == QEvent.MouseMove:
+                    idx = self.list.indexAt(ev.position().toPoint())
+                    data = idx.data(ROLE) if idx.isValid() else None
+                    bid = data["id"] if data else None
+                    if self.deleg.hover != bid:
+                        self.deleg.hover = bid
+                        self.list.viewport().update()
+                elif ev.type() == QEvent.Leave:
+                    if self.deleg.hover is not None:
+                        self.deleg.hover = None
+                        self.list.viewport().update()
         except RuntimeError:
             return False
         return super().eventFilter(obj, ev)
@@ -1458,6 +1583,7 @@ class Win(QMainWindow):
     def scan_done(self, n):
         self.pb.hide()
         self.statusBar().showMessage(f"Сканирование завершено: +{n}", 5000)
+        self.notify(f"Сканирование завершено: +{n}")
         self.reload()
         self.fetch_covers()
 
@@ -1471,7 +1597,8 @@ class Win(QMainWindow):
         self.statusBar().showMessage(f"Обложки: {len(jobs)}…")
         self.covers = CoverWorker(jobs)
         self.covers.got.connect(lambda bid: (self.deleg.bust(bid), self.list.viewport().update()))
-        self.covers.finishedAll.connect(lambda: self.statusBar().showMessage("Обложки готовы", 3000))
+        self.covers.finishedAll.connect(lambda: (
+            self.statusBar().showMessage("Обложки готовы", 3000), self.notify("Обложки готовы")))
         self.covers.start()
 
     def open_file(self):
@@ -1597,6 +1724,11 @@ class Win(QMainWindow):
             d.add(label, lambda bid=r["id"]: w.open_book(bid))
         d.fill("")
         d.exec()
+
+    def notify(self, text):
+        if not hasattr(self, "toast"):
+            self.toast = Toast(self)
+        self.toast.notify(text)
 
     def on_tab_changed(self, i):
         if self._history_lock:
@@ -1864,6 +1996,7 @@ class Win(QMainWindow):
             client.put(Sync.NAME, json.dumps(Sync.export(self.lib), ensure_ascii=False).encode("utf-8"))
             if not quiet:
                 self.statusBar().showMessage("Синхронизация: данные отправлены", 4000)
+                self.notify("Синхронизация: данные отправлены")
         except Exception as e:
             self.statusBar().showMessage(f"Ошибка синхронизации: {type(e).__name__}", 5000)
 
@@ -1878,6 +2011,7 @@ class Win(QMainWindow):
             Sync.apply(self.lib, data)
             self.reload()
             self.statusBar().showMessage("Синхронизация: данные получены", 4000)
+            self.notify("Синхронизация: данные получены")
         except Exception as e:
             self.statusBar().showMessage(f"Ошибка синхронизации: {type(e).__name__}", 5000)
 
