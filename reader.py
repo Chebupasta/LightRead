@@ -600,6 +600,7 @@ class Reader(QMainWindow):
         self.note_edit.clear()
         self.refresh_notes()
         self.statusBar().showMessage("Заметка сохранена", 2000)
+        self.notify("Заметка сохранена")
 
     def edit_note(self, r):
         self.note_edit_load_from_row(r)
@@ -730,6 +731,7 @@ class Reader(QMainWindow):
         self.lib.mark_add(self.bid, ch, pos, title, self.view.page_text()[:160].replace("\n", " "))
         self.fill_marks()
         self.statusBar().showMessage("Закладка добавлена", 2000)
+        self.notify("Закладка добавлена")
 
     def context_menu(self, gpos):
         m = QMenu(self)
@@ -1023,6 +1025,7 @@ class Reader(QMainWindow):
         apply_theme(self.st["theme"], force=True)
         self.apply({})
         self.statusBar().showMessage("Тема: " + self.st["theme"], 1500)
+        self.notify("Тема: " + self.st["theme"])
 
     def tune_changed(self, key, value):
         if key == "__reset__":
@@ -1101,6 +1104,11 @@ class Reader(QMainWindow):
             self.showNormal(); self.a_full.setChecked(False)
         else:
             self.showFullScreen(); self.a_full.setChecked(True)
+
+    def notify(self, text):
+        win = self.window()
+        if win is not self and hasattr(win, "notify"):
+            win.notify(text)
 
     def escape_full(self):
         main = self.window()

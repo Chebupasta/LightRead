@@ -197,6 +197,12 @@ QLabel#Chip {
 }
 QLabel#EmptyState { background: transparent; color: %(text.tertiary)s; font-size: %(font.xl)s; }
 
+QFrame#Toast {
+  background: %(bg.panel)s; border: 1px solid %(border.strong)s;
+  border-radius: %(radius.sm)s;
+}
+QFrame#Toast QLabel { color: %(text.primary)s; font-size: %(font.md)s; }
+
 /* Продолжить чтение */
 QFrame#ContinueBar {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
