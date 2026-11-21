@@ -1,7 +1,7 @@
 """Рендер: ReflowView (EPUB/FB2/…) и FixedView (PDF/DjVu) с непрерывной прокруткой,
 HiDPI-рендером в фоне, обрезкой полей сканов и стабильным масштабом."""
 from __future__ import annotations
-import statistics, threading
+import statistics, threading, functools
 from collections import OrderedDict
 
 from PySide6.QtCore import (Qt, QPoint, QPointF, QRectF, QSize, QSizeF, QUrl, QTimer,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QWidget, QScrollBar
 from common import theme, PDF_LOCK
 
 
+@functools.lru_cache(maxsize=None)
 def pick_font(pref=""):
     fams = set(QFontDatabase.families())
     if pref and pref in fams:
@@ -273,6 +274,10 @@ class ReflowView(QWidget):
         self.pages = 1; self.total = 0.0
         self.notes = []; self.sel = None
         self._drag = None; self._text = ""; self.chap = None
+        self._chap_cache = OrderedDict()  # не парсим ZIP/XML заново при возврате к главе
+        self._restyle_timer = QTimer(self); self._restyle_timer.setSingleShot(True)
+        self._restyle_timer.setInterval(120)
+        self._restyle_timer.timeout.connect(lambda: self.restyle())
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(260, 200)
@@ -312,7 +317,14 @@ class ReflowView(QWidget):
 
     def load(self, ch, pos=0):
         ch = max(0, min(self.src.count - 1, int(ch)))
-        self.chap = self.src.chapter(ch)
+        if ch in self._chap_cache:
+            self.chap = self._chap_cache.pop(ch)
+            self._chap_cache[ch] = self.chap
+        else:
+            self.chap = self.src.chapter(ch)
+            self._chap_cache[ch] = self.chap
+            if len(self._chap_cache) > 12:
+                self._chap_cache.popitem(last=False)
         self.ch = ch
         self.doc.setHtml("<body>" + self.chap.html + "</body>")
         self._text = self.doc.toPlainText()
@@ -583,7 +595,7 @@ class ReflowView(QWidget):
 
     def resizeEvent(self, _):
         if self.chap is not None:
-            self.restyle()
+            self._restyle_timer.start()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:

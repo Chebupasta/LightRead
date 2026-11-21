@@ -10,6 +10,7 @@ class Tts(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.e = None
+        self._cfg = None
         try:
             from PySide6.QtTextToSpeech import QTextToSpeech
             self.e = QTextToSpeech(self)
@@ -26,6 +27,10 @@ class Tts(QObject):
     def configure(self, st):
         if not self.e:
             return
+        cfg = tuple(st.get(k) for k in ("tts_voice", "tts_rate", "tts_pitch", "tts_vol"))
+        if cfg == getattr(self, "_cfg", None):
+            return
+        self._cfg = cfg
         for v in self.e.availableVoices():
             if v.name() == st["tts_voice"]:
                 self.e.setVoice(v); break

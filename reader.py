@@ -1,5 +1,6 @@
 """Окно чтения: постоянно видимая панель настройки, навигация, заметки, TTS."""
 import json, re, time
+from collections import OrderedDict
 from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, Signal
 from PySide6.QtGui import (QAction, QDesktopServices, QGuiApplication, QKeySequence, QIcon,
                            QPixmap, QPainter, QColor, QFont, QPen)
@@ -10,7 +11,7 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget
                                QApplication, QComboBox, QSpinBox, QCheckBox, QPushButton,
                                QListView, QStyledItemDelegate, QStyle, QFontComboBox)
 
-from common import S, HL, THEMES, theme, hms, ACCENT
+from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK
 from formats import open_source, FormatError, plain
 from views import ReflowView, FixedView, pick_font
 from services import Tts, StarDict
@@ -151,33 +152,47 @@ class ThumbDelegate(QStyledItemDelegate):
     def __init__(self, src, parent=None):
         super().__init__(parent)
         self.src = src
-        self.cache = {}
+        self.cache = OrderedDict()
+        self._scaled = OrderedDict()
+        self._theme = None
+        self._c = None
 
     def sizeHint(self, opt, idx):
         return QSize(112, 158)
 
     def paint(self, p, opt, idx):
         page = idx.data(Qt.UserRole)
-        c = chrome(theme(S["theme"]))
+        if self._theme != S["theme"]:
+            self._theme = S["theme"]
+            self._c = chrome(theme(self._theme))
+            self._scaled.clear()
+        c = self._c
         r = opt.rect.adjusted(6, 6, -6, -6)
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
         pm = self.cache.get(page)
         if pm is None:
             try:
-                ps = self.src.page_size(page)
-                w = 96
-                h = max(8, int(w * ps.height() / max(1.0, ps.width())))
-                img = self.src.render(page, QSize(w, min(160, h)))
+                with PDF_LOCK:
+                    ps = self.src.page_size(page)
+                    w = 96
+                    h = max(8, int(w * ps.height() / max(1.0, ps.width())))
+                    img = self.src.render(page, QSize(w, min(160, h)))
                 pm = QPixmap.fromImage(img)
             except Exception:
                 pm = QPixmap()
             self.cache[page] = pm
-            if len(self.cache) > 260:
-                self.cache.clear()
+            while len(self.cache) > 260:
+                self.cache.popitem(last=False)
         box = r.adjusted(0, 0, 0, -18)
         if not pm.isNull():
-            s = pm.scaled(box.size().toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            skey = (page, int(box.width()), int(box.height()))
+            s = self._scaled.get(skey)
+            if s is None:
+                s = pm.scaled(box.size().toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._scaled[skey] = s
+                if len(self._scaled) > 300:
+                    self._scaled.popitem(last=False)
             x = box.x() + (box.width() - s.width()) // 2
             y = box.y() + (box.height() - s.height()) // 2
             p.setPen(QPen(QColor(c["shadow"]), 1))
@@ -211,6 +226,7 @@ class Reader(QMainWindow):
                 self.st.update(json.loads(self.row["rsettings"]))
             except Exception:
                 pass
+        self.st["theme"] = norm_theme(self.st.get("theme"))
         apply_theme(self.st["theme"], force=True)
         self.src = open_source(self.row["path"])
         self.fixed = bool(self.src.fixed)
@@ -235,8 +251,12 @@ class Reader(QMainWindow):
         else:
             self.view.zoomChanged.connect(self.on_zoom)
         self.tts.stateChanged.connect(self.on_tts_state)
-        self._save = QTimer(self); self._save.setInterval(3000)
+        self._save = QTimer(self); self._save.setInterval(12000)
         self._save.timeout.connect(self.save_pos); self._save.start()
+        # перевёрстка тяжёлая — не делаем её на каждое движение ползунка
+        self._apply_timer = QTimer(self); self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(80)
+        self._apply_timer.timeout.connect(lambda: self.apply({}))
         self._auto = QTimer(self); self._auto.timeout.connect(self.autoscroll_tick)
         self._sleep = QTimer(self); self._sleep.setSingleShot(True); self._sleep.timeout.connect(self.sleep_done)
         self._clock = QTimer(self); self._clock.setInterval(20000)
@@ -614,17 +634,27 @@ class Reader(QMainWindow):
         pd = QProgressDialog("Поиск…", "Отмена", 0, n, self)
         pd.setWindowModality(Qt.WindowModal)
         hits = 0
+        ql = q.lower()
+        cache = getattr(self, "_plain_cache", None)
+        if cache is None:
+            cache = self._plain_cache = OrderedDict()
         for i in range(n):
-            pd.setValue(i); QApplication.processEvents()
+            if i % 8 == 0:
+                pd.setValue(i); QApplication.processEvents()
             if pd.wasCanceled():
                 break
             if self.fixed:
                 t = self.src.text(i)
             else:
-                t = plain(self.src.chapter(i).html)
+                t = cache.get(i)
+                if t is None:
+                    t = plain(self.src.chapter(i).html)
+                    cache[i] = t
+                    if len(cache) > 80:
+                        cache.popitem(last=False)
             start = 0
             while hits < 400:
-                k = t.lower().find(q.lower(), start)
+                k = t.lower().find(ql, start)
                 if k < 0:
                     break
                 label = f"стр. {i + 1}" if self.fixed else f"гл. {i + 1}"
@@ -670,7 +700,11 @@ class Reader(QMainWindow):
         if not word:
             return
         self.open_panel(4); self.dq.setText(word)
-        res = StarDict(S["dict_paths"]).lookup(word)
+        paths = S["dict_paths"]
+        if getattr(self, "_dict", None) is None or self._dict_paths != paths:
+            self._dict = StarDict(paths)
+            self._dict_paths = paths
+        res = self._dict.lookup(word)
         if res:
             self.dres.setHtml("<hr>".join(f"<b>{n}</b><br>{t}" for n, t in res))
         else:
@@ -752,6 +786,10 @@ class Reader(QMainWindow):
         except ValueError:
             i = 0
         self.st["theme"] = names[(i + 1) % len(names)]
+        # тема общая для приложения, а не только для этой книги
+        S["theme"] = self.st["theme"]
+        S.save()
+        apply_theme(self.st["theme"], force=True)
         self.apply({})
         self.statusBar().showMessage("Тема: " + self.st["theme"], 1500)
 
@@ -772,7 +810,24 @@ class Reader(QMainWindow):
         if key == "pdf_crop":
             self.view.st.update(self.st); self.view.set_crop(value)
             self.tune.sync(self.st); return
-        self.apply({})
+        if key == "brightness":
+            # это всего лишь затемняющая заливка в paintEvent — перевёрстка не нужна
+            self.view.st.update(self.st); self.view.update()
+            self.tune.sync(self.st); return
+        if key == "theme":
+            S["theme"] = value; S.save()
+            apply_theme(value, force=True)
+            self.view.st.update(self.st)
+            if not self.fixed:
+                self.view.restyle()
+            self.tune.sync(self.st); return
+        if key == "pdf_gap":
+            self.view.st.update(self.st); self.view._relayout()
+            self.tune.sync(self.st); return
+        if key == "render_scale":
+            self.view.st.update(self.st); self.view.restyle()
+            self.tune.sync(self.st); return
+        self._apply_timer.start()
 
     def apply(self, d):
         self.st.update(d)

@@ -1,10 +1,11 @@
 """Библиотека: обложки, аккуратные карточки, сканер, диалоги."""
 import os, subprocess, sys, time, zipfile
+from collections import OrderedDict
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect, QRectF, QUrl, QEvent
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QRect, QRectF, QUrl, QEvent, QTimer
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPainter, QPixmap,
                            QKeySequence, QStandardItem, QStandardItemModel, QPalette,
-                           QLinearGradient, QPen)
+                           QLinearGradient, QPen, QPainterPath)
 from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QStyle, QTreeWidget,
                                QTreeWidgetItem, QSplitter, QToolBar, QLineEdit, QComboBox, QWidget,
                                QVBoxLayout, QHBoxLayout, QFormLayout, QDialog, QDialogButtonBox,
@@ -143,7 +144,8 @@ class BookDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.grid = True
-        self._pix = {}
+        self._pix = OrderedDict()
+        self._scaled = OrderedDict()
         self._miss = set()
         self._c = chrome(theme(S["theme"]))
         self._dark = theme(S["theme"])["dark"]
@@ -152,20 +154,23 @@ class BookDelegate(QStyledItemDelegate):
         self._c = chrome(theme(S["theme"]))
         self._dark = theme(S["theme"])["dark"]
         if bid is None:
-            self._pix.clear(); self._miss.clear()
+            self._pix.clear(); self._miss.clear(); self._scaled.clear()
         else:
             self._pix.pop(bid, None); self._miss.discard(bid)
+            for k in [k for k in self._scaled if k[0] == bid]:
+                self._scaled.pop(k, None)
 
     def pix(self, bid):
         if bid in self._pix:
+            self._pix.move_to_end(bid)
             return self._pix[bid]
         pm = QPixmap(str(COVERS / f"{bid}.png"))
         if pm.isNull():
             pm = QPixmap()
             self._miss.add(bid)
         self._pix[bid] = pm
-        if len(self._pix) > 500:
-            self._pix.clear()
+        while len(self._pix) > 500:
+            self._pix.popitem(last=False)
         return pm
 
     def sizeHint(self, opt, idx):
@@ -176,7 +181,6 @@ class BookDelegate(QStyledItemDelegate):
         return {"read": OK, "reading": ACCENT2, "planned": "#8b95a4"}.get(b["status"], ACCENT)
 
     def _round(self, box, r=13):
-        from PySide6.QtGui import QPainterPath
         path = QPainterPath()
         path.addRoundedRect(box, r, r)
         return path
@@ -227,7 +231,13 @@ class BookDelegate(QStyledItemDelegate):
         if pm.isNull():
             self._placeholder(p, box, b)
         else:
-            s = pm.scaled(box.size().toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            key = (b["id"], int(box.width()), int(box.height()))
+            s = self._scaled.get(key)
+            if s is None:
+                s = pm.scaled(box.size().toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._scaled[key] = s
+                if len(self._scaled) > 600:
+                    self._scaled.popitem(last=False)
             x = box.x() + (box.width() - s.width()) / 2
             y = box.y() + (box.height() - s.height()) / 2
             p.setClipPath(self._round(box))
@@ -535,7 +545,10 @@ class Win(QMainWindow):
         act("Папки", self.folders)
         tb.addSeparator()
         self.q = QLineEdit(); self.q.setPlaceholderText("Поиск: название, автор, серия…")
-        self.q.textChanged.connect(lambda _: self.reload())
+        self._search_timer = QTimer(self); self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(180)
+        self._search_timer.timeout.connect(self.reload)
+        self.q.textChanged.connect(lambda _: self._search_timer.start())
         self.q.setMaximumWidth(340); tb.addWidget(self.q)
         self.sort = QComboBox()
         for k, v in [("added_desc", "Новые"), ("title", "Название"), ("author", "Автор"),
