@@ -529,6 +529,9 @@ class ReflowView(QWidget):
         c = QTextCursor(self.doc); c.setPosition(pos); c.select(QTextCursor.WordUnderCursor)
         self.sel = (c.selectionStart(), c.selectionEnd()); self.update()
 
+    def select_all(self):
+        self.sel = (0, len(self._text)); self.update()
+
     def add_note(self, color, note=""):
         if not self.sel:
             return None
@@ -604,6 +607,8 @@ class ReflowView(QWidget):
             self.sel = None; self.update()
         elif e.button() == Qt.BackButton:
             self.prev()
+        elif e.button() == Qt.RightButton:
+            self.menuRequested.emit(e.globalPosition().toPoint())
 
     def mouseMoveEvent(self, e):
         if self._drag:

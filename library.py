@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS books(
  lang TEXT, annotation TEXT, genres TEXT, size INTEGER, mtime REAL, added REAL,
  last_read REAL DEFAULT 0, progress REAL DEFAULT 0, status TEXT DEFAULT 'new', favorite INTEGER DEFAULT 0,
  chapter INTEGER DEFAULT 0, pos INTEGER DEFAULT 0, pages INTEGER DEFAULT 0,
- rsettings TEXT DEFAULT '', seconds REAL DEFAULT 0);
+ rsettings TEXT DEFAULT '', seconds REAL DEFAULT 0, manual_meta INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE);
+CREATE TABLE IF NOT EXISTS book_tag(tag INTEGER, book INTEGER, PRIMARY KEY(tag,book));
 CREATE TABLE IF NOT EXISTS coll(id INTEGER PRIMARY KEY, name TEXT UNIQUE);
 CREATE TABLE IF NOT EXISTS coll_book(coll INTEGER, book INTEGER, PRIMARY KEY(coll,book));
 CREATE TABLE IF NOT EXISTS marks(id INTEGER PRIMARY KEY, book INTEGER, chapter INTEGER, pos INTEGER,
@@ -31,7 +33,11 @@ class Library:
         self.c = sqlite3.connect(path, check_same_thread=False)
         self.c.row_factory = sqlite3.Row
         with self.lock:
-            self.c.executescript(SCHEMA); self.c.commit()
+            self.c.executescript(SCHEMA)
+            cols = {r["name"] for r in self.c.execute("PRAGMA table_info(books)")}
+            if "manual_meta" not in cols:
+                self.c.execute("ALTER TABLE books ADD COLUMN manual_meta INTEGER DEFAULT 0")
+            self.c.commit()
 
     def q(self, sql, a=()):
         with self.lock:
@@ -44,12 +50,17 @@ class Library:
 
     # ── книги ──
     def upsert(self, d):
-        old = self.q("SELECT id,size,mtime FROM books WHERE path=?", (norm(d["path"]),))
+        old = self.q("SELECT id,size,mtime,manual_meta FROM books WHERE path=?", (norm(d["path"]),))
         if old:
-            self.x("UPDATE books SET fmt=?,title=?,author=?,series=?,seq=?,lang=?,annotation=?,genres=?,"
-                   "size=?,mtime=? WHERE id=?",
-                   (d["fmt"], d["title"], d["author"], d["series"], d["seq"], d["lang"], d["annotation"],
-                    d["genres"], d["size"], d["mtime"], old[0]["id"]))
+            if old[0]["manual_meta"]:
+                # метаданные, введённые вручную, сканер не перезаписывает
+                self.x("UPDATE books SET fmt=?,size=?,mtime=? WHERE id=?",
+                       (d["fmt"], d["size"], d["mtime"], old[0]["id"]))
+            else:
+                self.x("UPDATE books SET fmt=?,title=?,author=?,series=?,seq=?,lang=?,annotation=?,genres=?,"
+                       "size=?,mtime=? WHERE id=?",
+                       (d["fmt"], d["title"], d["author"], d["series"], d["seq"], d["lang"], d["annotation"],
+                        d["genres"], d["size"], d["mtime"], old[0]["id"]))
             return old[0]["id"]
         return self.x("INSERT INTO books(path,fmt,title,author,series,seq,lang,annotation,genres,size,mtime,added)"
                       " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -80,6 +91,7 @@ class Library:
         elif k == "fmt": w.append("fmt=?"); a.append(f["value"])
         elif k == "folder": w.append("path LIKE ?"); a.append(norm(f["value"]).rstrip("/") + "/%")
         elif k == "coll": w.append("id IN (SELECT book FROM coll_book WHERE coll=?)"); a.append(f["value"])
+        elif k == "tag": w.append("id IN (SELECT book FROM book_tag WHERE tag=?)"); a.append(f["value"])
         if search:
             w.append("(title LIKE ? OR author LIKE ? OR series LIKE ?)"); a += [f"%{search}%"] * 3
         sql = "SELECT * FROM books" + (" WHERE " + " AND ".join(w) if w else "")
@@ -102,6 +114,31 @@ class Library:
     def set_field(self, bid, **kw):
         if kw:
             self.x(f"UPDATE books SET {','.join(k+'=?' for k in kw)} WHERE id=?", (*kw.values(), bid))
+
+    def set_meta(self, bid, **kw):
+        if kw:
+            kw["manual_meta"] = 1
+            self.set_field(bid, **kw)
+
+    # ── метки ──
+    def tags(self):
+        return self.q("SELECT t.id,t.name,COUNT(b.book) n FROM tags t LEFT JOIN book_tag b ON b.tag=t.id "
+                      "GROUP BY t.id ORDER BY t.name")
+
+    def new_tag(self, name):
+        return self.x("INSERT OR IGNORE INTO tags(name) VALUES(?)", (name,))
+
+    def tag_drop(self, tid):
+        self.x("DELETE FROM book_tag WHERE tag=?", (tid,)); self.x("DELETE FROM tags WHERE id=?", (tid,))
+
+    def book_tags(self, bid):
+        return [r["tag"] for r in self.q("SELECT tag FROM book_tag WHERE book=?", (bid,))]
+
+    def tag_book(self, tid, bid, on):
+        if on:
+            self.x("INSERT OR IGNORE INTO book_tag(tag,book) VALUES(?,?)", (tid, bid))
+        else:
+            self.x("DELETE FROM book_tag WHERE tag=? AND book=?", (tid, bid))
 
     def remove(self, bid, delete_file=False):
         b = self.book(bid)
@@ -138,6 +175,9 @@ class Library:
         return self.x("INSERT INTO marks(book,chapter,pos,title,text,created) VALUES(?,?,?,?,?,?)",
                       (bid, ch, pos, title, text, time.time()))
     def mark_del(self, mid): self.x("DELETE FROM marks WHERE id=?", (mid,))
+    def mark_upd(self, mid, **kw):
+        if kw:
+            self.x(f"UPDATE marks SET {','.join(k+'=?' for k in kw)} WHERE id=?", (*kw.values(), mid))
 
     def notes(self, bid): return self.q("SELECT * FROM notes WHERE book=? ORDER BY chapter,start", (bid,))
     def note_add(self, bid, ch, s, e, color, text, note=""):
