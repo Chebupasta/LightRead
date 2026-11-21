@@ -11,7 +11,7 @@ from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPa
 from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QStyle, QTreeWidget,
                                QStyleOptionViewItem,
                                QTreeWidgetItem, QSplitter, QToolBar, QLineEdit, QComboBox, QWidget,
-                               QVBoxLayout, QHBoxLayout, QFormLayout, QDialog, QDialogButtonBox,
+                               QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QDialog, QDialogButtonBox,
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
@@ -29,6 +29,7 @@ EXTS = ALL_EXTS
 ROLE = Qt.UserRole + 1
 _SESSION_RESTORED = False
 GROUP_COLORS = ("#5e6ad2", "#3fb950", "#d29922", "#f85149", "#a371f7", "#58a6ff")
+HOME_TAB, LIB_TAB = 0, 1
 FMT_COLOR = {k: SEMANTIC["dark"]["data." + k] for k in
              ("pdf", "epub", "fb2", "djvu", "docx", "mobi", "azw3", "txt")}
 
@@ -943,6 +944,128 @@ class AllNotesDialog(QDialog):
                 break
 
 
+class HomePage(QWidget):
+    """Главный экран: продолжить чтение, недавние книги и цель."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.setObjectName("HomePage")
+        self.setAccessibleName("Главный экран")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(26, 18, 26, 18)
+        root.setSpacing(16)
+
+        title = QLabel("Продолжить чтение")
+        title.setObjectName("HomeTitle")
+        root.addWidget(title)
+
+        self.cont = QFrame()
+        self.cont.setObjectName("ContinueCard")
+        ch = QHBoxLayout(self.cont)
+        ch.setContentsMargins(14, 12, 14, 12)
+        ch.setSpacing(14)
+        self.cont_cover = QLabel()
+        self.cont_cover.setFixedSize(QSize(72, 104))
+        self.cont_cover.setAlignment(Qt.AlignCenter)
+        ch.addWidget(self.cont_cover)
+        col = QVBoxLayout(); col.setSpacing(5)
+        self.cont_label = QLabel()
+        self.cont_label.setObjectName("ContinueLabel")
+        self.cont_label.setWordWrap(True)
+        self.cont_meta = QLabel(); self.cont_meta.setObjectName("HomeSubtle")
+        self.cont_bar = QProgressBar(); self.cont_bar.setFixedHeight(3)
+        self.cont_bar.setTextVisible(False)
+        col.addWidget(self.cont_label); col.addWidget(self.cont_meta); col.addWidget(self.cont_bar)
+        ch.addLayout(col, 1)
+        btn = QPushButton("Продолжить →"); btn.setObjectName("ContinueBtn")
+        btn.clicked.connect(self.win.continue_reading)
+        ch.addWidget(btn)
+        self.cont.hide()
+        root.addWidget(self.cont)
+
+        recent_title = QLabel("Недавние книги")
+        recent_title.setObjectName("SectionTitle")
+        root.addWidget(recent_title)
+        self.recent_host = QWidget()
+        self.recent_layout = QGridLayout(self.recent_host)
+        self.recent_layout.setContentsMargins(0, 0, 0, 0)
+        self.recent_layout.setSpacing(10)
+        root.addWidget(self.recent_host, 1)
+
+        self.goal = QFrame(); self.goal.setObjectName("GoalCard")
+        gl = QHBoxLayout(self.goal); gl.setContentsMargins(14, 12, 14, 12)
+        self.goal_label = QLabel(); self.goal_label.setObjectName("HomeSubtle")
+        self.goal_bar = QProgressBar(); self.goal_bar.setFixedHeight(3)
+        self.goal_bar.setTextVisible(False)
+        gl.addWidget(self.goal_label, 1); gl.addWidget(self.goal_bar, 2)
+        root.addWidget(self.goal)
+
+        open_btn = QPushButton("Открыть файл…"); open_btn.setObjectName("HomeAction")
+        open_btn.clicked.connect(self.win.open_file)
+        lib_btn = QPushButton("Перейти в библиотеку"); lib_btn.setObjectName("HomeAction")
+        lib_btn.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
+        actions = QHBoxLayout(); actions.addWidget(open_btn); actions.addWidget(lib_btn); actions.addStretch(1)
+        root.addLayout(actions)
+
+    def refresh(self):
+        lib = self.win.lib
+        rows = lib.q("SELECT id,title,author,progress FROM books "
+                     "WHERE last_read>0 AND progress>0.001 AND progress<0.995 "
+                     "ORDER BY last_read DESC LIMIT 1")
+        if not rows:
+            self.cont.hide()
+        else:
+            r = rows[0]
+            self.win._continue_id = r["id"]
+            name = r["title"] or "Без названия"
+            author = f" · {r['author']}" if r["author"] else ""
+            self.cont_label.setText(f"{name}{author}")
+            self.cont_meta.setText(f"{r['progress'] * 100:.0f}% прочитано")
+            self.cont_bar.setRange(0, 100); self.cont_bar.setValue(int(r["progress"] * 100))
+            pm = self.win.deleg.pix(r["id"])
+            if not pm.isNull():
+                self.cont_cover.setPixmap(pm.scaled(72, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                self.cont_cover.clear()
+            self.cont.show()
+
+        while self.recent_layout.count():
+            item = self.recent_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 6")
+        if not recent:
+            hint = QLabel("Здесь появятся недавно открытые книги")
+            hint.setObjectName("HomeSubtle")
+            self.recent_layout.addWidget(hint, 0, 0)
+        for i, r in enumerate(recent):
+            pm = self.win.deleg.pix(r["id"])
+            card = QPushButton()
+            card.setObjectName("RecentCard")
+            card.setToolTip((r["title"] or "Без названия") + (f" — {r['author']}" if r["author"] else ""))
+            if not pm.isNull():
+                card.setIcon(QIcon(pm.scaled(46, 66, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+                card.setIconSize(QSize(46, 66))
+            card.setText(f"{(r['title'] or 'Без названия')[:28]}\n{r['progress'] * 100:.0f}%")
+            card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
+            self.recent_layout.addWidget(card, i // 3, i % 3)
+
+        goal = int(S.get("daily_goal", 0) or 0)
+        today = date.today().isoformat()
+        secs = sum((row["s"] or 0) for row in lib.q("SELECT seconds s FROM stats WHERE day=?", (today,)))
+        if goal:
+            limit = goal * 60
+            self.goal_bar.setRange(0, limit)
+            self.goal_bar.setValue(min(int(secs), limit))
+            self.goal_label.setText(f"Цель на сегодня: {hms(int(secs))} / {hms(limit)}")
+            self.goal.show()
+        else:
+            self.goal_label.setText("Цель чтения не задана — F7 → Сервисы")
+            self.goal.hide()
+
+
 class NavDelegate(QStyledItemDelegate):
     """Аккуратная подсветка дерева навигации: точка роли и акцентная полоса."""
 
@@ -1273,14 +1396,11 @@ class Win(QMainWindow):
         self.sp.setStretchFactor(1, 1); self.sp.setSizes([240, 1020])
         central = QWidget(); box = QVBoxLayout(central)
         box.setContentsMargins(0, 0, 0, 0); box.setSpacing(0)
-        self.cont = QFrame(); self.cont.setObjectName("ContinueBar")
-        ch = QHBoxLayout(self.cont); ch.setContentsMargins(14, 9, 14, 9)
-        self.cont_label = QLabel(); self.cont_label.setObjectName("ContinueLabel")
-        btn = QPushButton("Продолжить →"); btn.setObjectName("ContinueBtn")
-        btn.clicked.connect(self.continue_reading)
-        ch.addWidget(self.cont_label, 1); ch.addWidget(btn)
-        self.cont.hide()
-        box.addWidget(self.cont); box.addWidget(self.sp, 1)
+        box.addWidget(self.sp, 1)
+        self.library_page = central
+        self.home = HomePage(self)
+        self.cont = self.home.cont
+        self.cont_label = self.home.cont_label
         self.book_tabs = QTabWidget()
         self.book_tabs.setTabsClosable(True)
         self.book_tabs.tabCloseRequested.connect(self.close_tab)
@@ -1289,13 +1409,14 @@ class Win(QMainWindow):
         bar.customContextMenuRequested.connect(self.tab_menu)
         self.book_tabs.setDocumentMode(True)
         self.book_tabs.setMovable(True)
-        self.library_page = central
-        self.book_tabs.addTab(central, "⌂ Библиотека")
+        self.book_tabs.addTab(self.home, "⌂ Главная")
+        self.book_tabs.addTab(central, "Библиотека")
         self.book_tabs.setAccessibleName("Вкладки книг")
         self.book_tabs.tabBar().setAccessibleName("Переключение вкладок")
-        self.book_tabs.tabBar().setTabButton(0, QTabBar.RightSide, None)
+        self.book_tabs.tabBar().setTabButton(HOME_TAB, QTabBar.RightSide, None)
+        self.book_tabs.tabBar().setTabButton(LIB_TAB, QTabBar.RightSide, None)
         plus = QToolButton(); plus.setText("+"); plus.setToolTip("Новая вкладка")
-        plus.clicked.connect(lambda: self.book_tabs.setCurrentIndex(0))
+        plus.clicked.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
         self.book_tabs.setCornerWidget(plus, Qt.TopRightCorner)
         self.setCentralWidget(self.book_tabs)
         QShortcut(QKeySequence("Ctrl+Tab"), self, lambda: self.cycle_tab(1))
@@ -1307,25 +1428,14 @@ class Win(QMainWindow):
         QShortcut(QKeySequence("Alt+Left"), self, lambda: self.tab_history(-1))
         QShortcut(QKeySequence("Alt+Right"), self, lambda: self.tab_history(1))
         find = QShortcut(QKeySequence("Ctrl+F"), self.library_page,
-                         lambda: (self.book_tabs.setCurrentIndex(0), self.q.setFocus()))
+                         lambda: (self.book_tabs.setCurrentIndex(LIB_TAB), self.q.setFocus()))
         find.setContext(Qt.WidgetWithChildrenShortcut)
         self.book_tabs.currentChanged.connect(self.on_tab_changed)
         self.pb = QProgressBar(); self.pb.setMaximumWidth(220); self.pb.hide()
         self.statusBar().addPermanentWidget(self.pb)
 
     def update_continue(self):
-        rows = self.lib.q("SELECT id,title,author,progress FROM books "
-                          "WHERE last_read>0 AND progress>0.001 AND progress<0.995 "
-                          "ORDER BY last_read DESC LIMIT 1")
-        if not rows:
-            self.cont.hide()
-            return
-        r = rows[0]
-        self._continue_id = r["id"]
-        name = r["title"] or "Без названия"
-        author = f" · {r['author']}" if r["author"] else ""
-        self.cont_label.setText(f"Продолжить чтение: {name}{author} · {r['progress'] * 100:.0f}%")
-        self.cont.show()
+        self.home.refresh()
 
     def continue_reading(self):
         bid = getattr(self, "_continue_id", None)
@@ -1708,7 +1818,8 @@ class Win(QMainWindow):
             ("Сетка / Список", w.toggle_view),
             ("Настройки", w.settings),
             ("Статистика", w.stats),
-            ("⌂ На главную (библиотека)", lambda: w.book_tabs.setCurrentIndex(0)),
+            ("⌂ Главная", lambda: w.book_tabs.setCurrentIndex(HOME_TAB)),
+            ("Библиотека", lambda: w.book_tabs.setCurrentIndex(LIB_TAB)),
         ):
             d.add(label, fn)
         if w.reader:
@@ -1768,13 +1879,13 @@ class Win(QMainWindow):
         w = self.book_tabs.widget(i)
         if isinstance(w, Reader):
             w.close()
-        elif i > 0:
+        elif i > LIB_TAB:
             self.book_tabs.removeTab(i)
 
     def tab_menu(self, pos):
         bar = self.book_tabs.tabBar()
         i = bar.tabAt(pos)
-        if i <= 0:
+        if i <= LIB_TAB:
             return
         w = self.book_tabs.widget(i)
         if not isinstance(w, Reader):
@@ -1819,7 +1930,7 @@ class Win(QMainWindow):
         self.group_filter.addItems(list(self.groups))
         self.group_filter.setCurrentText(current if current in ("Все вкладки", *self.groups) else "Все вкладки")
         self.group_filter.blockSignals(False)
-        for i in range(1, self.book_tabs.count()):
+        for i in range(LIB_TAB + 1, self.book_tabs.count()):
             w = self.book_tabs.widget(i)
             if not isinstance(w, Reader):
                 continue
@@ -1840,7 +1951,7 @@ class Win(QMainWindow):
         for i in range(self.book_tabs.count()):
             w = self.book_tabs.widget(i)
             show = True
-            if i > 0 and isinstance(w, Reader) and name != "Все вкладки":
+            if i > LIB_TAB and isinstance(w, Reader) and name != "Все вкладки":
                 show = w in self.groups.get(name, [])
             self.book_tabs.tabBar().setTabVisible(i, show)
 
@@ -2038,7 +2149,8 @@ class Win(QMainWindow):
 
     def hotkeys(self):
         QMessageBox.information(self, "Горячие клавиши", """
-<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+D вид · F7 настройки
+<b>Главная</b>: Ctrl+1 главная · Ctrl+2 библиотека · Ctrl+K команды · Ctrl+Shift+T вернуть вкладку
+<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+D вид · F7 настройки · Ctrl+F поиск
 <b>Чтение</b>: Space/PgDn вперёд · PgUp назад · Home/End начало/конец · Ctrl+←/→ глава
 F4 навигация · Ctrl+F поиск · Ctrl+B закладка · Ctrl+N заметки · Ctrl+T озвучка
 Ctrl+R автопрокрутка · F5 тема · F6 панель настройки · F11 полный экран · Ctrl+W закрыть
