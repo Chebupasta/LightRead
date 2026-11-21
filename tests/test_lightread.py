@@ -152,13 +152,41 @@ class TestThemes(unittest.TestCase):
             self.assertGreaterEqual(contrast(th["fg"], th["bg"]), 4.5, f"тема {name}: текст")
 
     def test_aliases_and_chrome(self):
-        self.assertEqual(common.norm_theme("Зелень"), "Лён")
-        self.assertEqual(common.norm_theme("Консоль"), "Графит")
-        self.assertEqual(common.norm_theme("нет такой"), "Сепия")
+        for old in ("День", "Сепия", "Лён", "Зелень"):
+            self.assertEqual(common.norm_theme(old), "Светлая")
+        for old in ("Ночь", "AMOLED", "Сумерки", "Графит", "Контраст", "Консоль"):
+            self.assertEqual(common.norm_theme(old), "Тёмная")
+        self.assertEqual(common.norm_theme("нет такой"), "Светлая")
+        self.assertEqual(common.theme("Светлая")["bg"], "#ffffff")
+        self.assertEqual(common.theme("Тёмная")["bg"], "#000000")
         for name in common.THEMES:
             c = theming.chrome(common.theme(name))
             for key in ("win", "panel", "field", "border", "text", "dim", "accent", "track", "chip"):
                 self.assertTrue(c.get(key))
+
+    def test_two_themes_only(self):
+        self.assertEqual(list(common.THEMES), ["Светлая", "Тёмная"])
+
+    def test_rounded_widgets(self):
+        """Все видимые элементы должны иметь скруглённые углы."""
+        css = theming.TPL
+        selectors = (
+            "QFrame {", "QToolTip", "QMenu {", "QMenu::item", "QMenuBar::item",
+            "QToolButton {", "QStatusBar QLabel", "QStatusBar QSpinBox",
+            "QDockWidget {", "QDockWidget::title", "QTabWidget::pane", "QTabBar::tab",
+            "QLineEdit,", "QComboBox QAbstractItemView", "QSpinBox::up-button",
+            "QPushButton {", "QCheckBox::indicator", "QRadioButton::indicator",
+            "QTreeWidget::item", "QScrollBar::handle:vertical", "QScrollBar::handle:horizontal",
+            "QSlider::groove:horizontal", "QSlider::handle:horizontal",
+            "QProgressBar {", "QProgressBar::chunk", "QWidget#TuneBar QComboBox",
+            "QWidget#TuneBar QPushButton", "QLabel#Chip", "QFrame#ContinueBar",
+            "QPushButton#ContinueBtn", "QGroupBox {",
+        )
+        for sel in selectors:
+            i = css.find(sel)
+            self.assertGreaterEqual(i, 0, f"нет правила {sel}")
+            block = css[i:css.find("}", i)]
+            self.assertIn("border-radius", block, f"нет скругления у {sel}")
 
     def test_font_cache(self):
         views.pick_font.cache_clear()
