@@ -1,13 +1,13 @@
 """Парсеры форматов. Единая модель: Source -> Chapter(title, html, anchors)."""
 from __future__ import annotations
-import base64, bisect, gzip, html, io, os, posixpath, re, shutil, struct, subprocess, zipfile
+import base64, bisect, gzip, hashlib, html, io, os, posixpath, re, shutil, struct, subprocess, zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote
 
-from common import CACHE
+from common import CACHE, S
 
 
 class FormatError(Exception):
@@ -285,7 +285,32 @@ def read_text(path):
     return raw.decode("latin-1", "replace")
 
 
+def _hyphen_word(word):
+    if len(word) < 6:
+        return word
+    vowels = "аеёиоуыэюяaeiouy"
+    points = []
+    for i in range(2, len(word) - 2):
+        if word[i] in vowels and word[i + 1] not in vowels:
+            points.append(i + 1)
+    if not points:
+        points = list(range(3, len(word) - 2, 3))
+    result, last = [], 0
+    for p in points:
+        if p - last >= 2 and len(word) - p >= 2:
+            result.append(word[last:p])
+            last = p
+    result.append(word[last:])
+    return "\u00ad".join(result)
+
+
+def soft_hyphenate(text):
+    return re.sub(r"[А-Яа-яЁёA-Za-z]{6,}", lambda m: _hyphen_word(m.group(0)), text)
+
+
 def text_to_html(txt):
+    if S.get("hyphenate"):
+        txt = soft_hyphenate(txt)
     out = []
     for par in re.split(r"\n\s*\n", txt.replace("\r\n", "\n").replace("\r", "\n")):
         par = par.strip("\n")
@@ -331,6 +356,87 @@ class Txt(Parts):
             e = chunks[idx + 1][0] if idx + 1 < len(chunks) else len(txt)
             self.parts.append((title[:90] or f"Часть {idx + 1}", text_to_html(txt[s:e]), {}))
         self.finalize()
+
+
+def _md_inline(s):
+    s = html.escape(s, quote=False)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
+    s = re.sub(r"\[\^(\w+)\]", r"<sup>\1</sup>", s)
+    return s
+
+
+def md_to_html(text):
+    lines = text.splitlines()
+    out, in_code, footnotes = [], False, {}
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.lstrip().startswith("```"):
+            out.append("</code></pre>" if in_code else "<pre><code>")
+            in_code = not in_code
+            i += 1; continue
+        if in_code:
+            out.append(html.escape(line)); i += 1; continue
+        m = re.match(r"^\s*\[\^(\w+)\]:\s*(.*)$", line)
+        if m:
+            footnotes[m.group(1)] = m.group(2)
+            i += 1; continue
+        if re.match(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", line):
+            out.append("<hr/>"); i += 1; continue
+        m = re.match(r"^\s{0,3}(#{1,6})\s+(.*)$", line)
+        if m:
+            lvl = min(6, len(m.group(1)))
+            out.append(f"<h{lvl}>{_md_inline(m.group(2))}</h{lvl}>")
+            i += 1; continue
+        if "|" in line and i + 1 < len(lines) and re.match(r"^\s*\|?\s*:?-{3,}", lines[i + 1]):
+            rows = []
+            while i < len(lines) and "|" in lines[i]:
+                rows.append([c.strip() for c in lines[i].strip().strip("|").split("|")])
+                i += 1
+            out.append("<table><tr>" + "".join(
+                f"<td><b>{_md_inline(c)}</b></td>" for c in rows[0]) + "</tr>")
+            for row in rows[2:]:
+                out.append("<tr>" + "".join(f"<td>{_md_inline(c)}</td>" for c in row) + "</tr>")
+            out.append("</table>")
+            continue
+        if line.lstrip().startswith(">"):
+            out.append(f"<blockquote>{_md_inline(line.lstrip()[1:].strip())}</blockquote>")
+            i += 1; continue
+        m = re.match(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*)$", line)
+        if m:
+            mark = "☑" if m.group(1).lower() == "x" else "☐"
+            out.append(f"<p>{mark} {_md_inline(m.group(2))}</p>")
+            i += 1; continue
+        m = re.match(r"^\s*(?:[-*+]|\d+\.)\s+(.*)$", line)
+        if m:
+            out.append(f"<p>• {_md_inline(m.group(1))}</p>")
+            i += 1; continue
+        if line.strip():
+            out.append(f"<p>{_md_inline(line)}</p>")
+        i += 1
+    if in_code:
+        out.append("</code></pre>")
+    if footnotes:
+        out.append("<hr/>")
+        for key, value in footnotes.items():
+            out.append(f"<p><sup>{key}</sup> {_md_inline(value)}</p>")
+    return "\n".join(out)
+
+
+class Markdown(Parts):
+    def __init__(self, path):
+        super().__init__()
+        body = md_to_html(read_text(path))
+        c = QtHtml(img=lambda src: "", link=lambda href: "ext:" + href)
+        c.feed(body)
+        html_text, anchors, _title = c.finish()
+        self.meta.title = Path(path).stem
+        self.parts, _ = split_html(html_text, anchors, c.headings)
+        self.finalize()
+        self.toc = toc_from_headings(html_text, html_headings(html_text)) or self.toc
 
 
 class HtmlFile(Parts):
@@ -1163,7 +1269,9 @@ class Pdf(Source):
             pass
         try:
             m = QPdfBookmarkModel(); m.setDocument(self.doc)
-            PageRole = getattr(QPdfBookmarkModel, "PageRole", Qt.UserRole + 1)
+            Role = getattr(QPdfBookmarkModel, "Role", None)
+            PageRole = getattr(Role, "Page",
+                               getattr(QPdfBookmarkModel, "PageRole", Qt.UserRole + 1))
             def walk(parent, lvl):
                 for r in range(m.rowCount(parent)):
                     idx = m.index(r, 0, parent)
@@ -1227,7 +1335,8 @@ def open_source(path) -> Source:
                 fb2 = any(n.lower().endswith(".fb2") for n in z.namelist())
             return Fb2(p) if fb2 else Cbz(p)
         if ext == ".cbz": return Cbz(p)
-        if ext in (".txt", ".text", ".md", ".log"): return Txt(p)
+        if ext in (".txt", ".text", ".log"): return Txt(p)
+        if ext == ".md": return Markdown(p)
         if ext in (".html", ".htm", ".xhtml"): return HtmlFile(p)
         if ext == ".docx": return Docx(p)
         if ext == ".odt": return Odt(p)
@@ -1336,18 +1445,66 @@ Pdf.text = _pdf_text
 Pdf.__init__ = _pdf_init(Pdf.__init__)
 
 
+def _first_page_cover(src, title=""):
+    """Обложка — отрендеренная первая страница документа, а не первая картинка в архиве."""
+    from common import CACHE
+    tmp = None
+    try:
+        from PySide6.QtCore import QSize, QByteArray, QBuffer, QIODevice
+        from PySide6.QtGui import QTextDocument, QFont, QPageSize, QPdfWriter
+        from PySide6.QtPdf import QPdfDocument
+
+        doc = QTextDocument()
+        doc.setDefaultFont(QFont("Sans", 11))
+        doc.setDefaultStyleSheet("body{color:#000000;} h1,h2,h3{color:#000000;}")
+        name = html.escape(title or src.meta.title or "")
+        doc.setHtml(f"<h1>{name}</h1>" + (src.chapter(0).html if src.count else ""))
+        doc.setPageSize(QSize(595, 842))
+        doc.setDocumentMargin(40)
+
+        ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly)
+        writer = QPdfWriter(buf)
+        writer.setPageSize(QPageSize(QPageSize.A4))
+        writer.setResolution(120)
+        doc.print_(writer)
+        buf.close()
+
+        data = bytes(ba)
+        tmp = CACHE / f"_cover_{hashlib.md5(data).hexdigest()[:16]}.pdf"
+        tmp.write_bytes(data)
+        pdf = QPdfDocument()
+        if pdf.load(str(tmp)) != QPdfDocument.Error.None_ or not pdf.pageCount():
+            return b""
+        img = pdf.render(0, QSize(340, 480))
+        if img.isNull():
+            return b""
+        out = QByteArray(); ob = QBuffer(out); ob.open(QIODevice.WriteOnly)
+        img.save(ob, "PNG"); ob.close()
+        return bytes(out)
+    except Exception:
+        return b""
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
 def _docx_cover(orig):
     def __init__(self, path):
         orig(self, path)
         if not self.meta.cover:
-            try:
-                media = sorted(n for n in self.z.namelist()
-                               if n.startswith("word/media/") and
-                               n.lower().endswith((".png", ".jpg", ".jpeg")))
-                if media:
-                    self.meta.cover = self.z.read(media[0])
-            except Exception:
-                pass
+            self.meta.cover = _first_page_cover(self)
+            if not self.meta.cover:
+                try:
+                    media = sorted(n for n in self.z.namelist()
+                                   if n.startswith("word/media/") and
+                                   n.lower().endswith((".png", ".jpg", ".jpeg")))
+                    if media:
+                        self.meta.cover = self.z.read(media[0])
+                except Exception:
+                    pass
     return __init__
 
 
@@ -1358,14 +1515,16 @@ def _odt_cover(orig):
     def __init__(self, path):
         orig(self, path)
         if not self.meta.cover:
-            try:
-                pics = sorted(n for n in self.z.namelist()
-                              if n.startswith("Pictures/") and
-                              n.lower().endswith((".png", ".jpg", ".jpeg")))
-                if pics:
-                    self.meta.cover = self.z.read(pics[0])
-            except Exception:
-                pass
+            self.meta.cover = _first_page_cover(self)
+            if not self.meta.cover:
+                try:
+                    pics = sorted(n for n in self.z.namelist()
+                                  if n.startswith("Pictures/") and
+                                  n.lower().endswith((".png", ".jpg", ".jpeg")))
+                    if pics:
+                        self.meta.cover = self.z.read(pics[0])
+                except Exception:
+                    pass
     return __init__
 
 

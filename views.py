@@ -293,12 +293,16 @@ class ReflowView(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(260, 200)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
 
     def shutdown(self):
         pass
 
     def ncols(self):
-        return 2 if (int(self.st["columns"]) == 2 and self.st["mode"] == "paged") else 1
+        if int(self.st["columns"]) != 2 or self.st["mode"] != "paged":
+            return 1
+        return 2 if self.content().width() >= 560 else 1
 
     def content(self):
         m = float(self.st["margin"])
@@ -590,6 +594,8 @@ class ReflowView(QWidget):
             c = self.content()
             p.fillRect(c, QColor(th["bg"]))
             sel = QColor(th["sel"]); sel.setAlpha(150)
+            sel_rects = self._sel_rects()
+            p.setPen(Qt.NoPen); p.setBrush(sel)
             for k in range(self.ncols()):
                 r, off = self.colrect(k), self.offset_of(k)
                 if self.st["mode"] == "paged" and self.page + k >= self.pages:
@@ -598,8 +604,7 @@ class ReflowView(QWidget):
                 p.setClipRect(r)
                 p.translate(r.x(), r.y() - off)
                 self.doc.drawContents(p, QRectF(0, off, r.width(), r.height()))
-                p.setPen(Qt.NoPen); p.setBrush(sel)
-                for sr in self._sel_rects():
+                for sr in sel_rects:
                     if sr.bottom() >= off and sr.top() <= off + r.height():
                         p.drawRect(sr)
                 p.restore()
@@ -712,6 +717,7 @@ class FixedView(QWidget):
         self.total = 0.0; self.docw = 0.0
         self._drag = None
         self._pix = {}
+        self._last = OrderedDict()
         self.vbar = QScrollBar(Qt.Vertical, self)
         self.hbar = QScrollBar(Qt.Horizontal, self)
         self.vbar.valueChanged.connect(self._vbar)
@@ -720,6 +726,8 @@ class FixedView(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(260, 200)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         QTimer.singleShot(0, self._apply_fit)
 
     def shutdown(self):
@@ -729,6 +737,22 @@ class FixedView(QWidget):
     # ── масштаб ──
     def _view_w(self):
         return max(80, self.width() - (self.vbar.width() if self.vbar.isVisible() else 12))
+
+    def _center_and_update(self):
+        self._center_x()
+        self._sync_bars()
+        self.update()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self._layout:
+            self._relayout()
+            self._sync_bars()
+            QTimer.singleShot(0, self._center_and_update)
+
+    def _center_x(self):
+        if self._layout:
+            self.ox = max(0.0, self._layout[0].center().x() - self._view_w() / 2.0)
 
     def _apply_fit(self, anchor=None):
         g = float(self.st["pdf_gap"])
@@ -743,7 +767,11 @@ class FixedView(QWidget):
             s = float(self.st["pdf_zoom"]) / 100.0
         s = max(0.05, min(8.0, s))
         if abs(s - self.scale) < 1e-6:
-            self._relayout(); return
+            self._relayout()
+            if self.ox == 0.0:
+                self._center_x()
+                self._sync_bars(); self.update()
+            return
         cx = (self.ox + self.width() / 2) / max(1e-6, self.scale)
         cy = (self.oy + self.height() / 2) / max(1e-6, self.scale)
         if anchor is not None:
@@ -751,7 +779,10 @@ class FixedView(QWidget):
         self.scale = s
         self.engine.invalidate()
         self._relayout()
-        self._tx = max(0.0, cx * s - self.width() / 2)
+        if anchor is None:
+            QTimer.singleShot(0, self._center_and_update)
+            cx = (self.ox + self._view_w() / 2) / s
+        self._tx = max(0.0, cx * s - self._view_w() / 2)
         self._ty = max(0.0, cy * s - self.height() / 2)
         self.ox, self.oy = self._tx, self._ty
         self._sync_bars(); self.update()
@@ -855,6 +886,7 @@ class FixedView(QWidget):
         if smooth and not self._anim.isActive():
             self._anim.start()
         elif not smooth:
+            self._anim.stop()
             self.ox, self.oy = self._tx, self._ty
             self._sync_bars(); self._update_page(); self.update()
 
@@ -883,9 +915,36 @@ class FixedView(QWidget):
     def load(self, ch, pos=0): self.goto(int(pos))
     def restore(self, ch, pos): self.goto(int(pos))
     def goto_anchor(self, a): self.goto(int(a or 0))
-    def apply_notes(self): pass
+    def apply_notes(self):
+        self.notes.sort(key=lambda n: (n["start"], n["end"]))
+
     def selection_text(self): return ""
+
+    def add_note(self, color, note=""):
+        page = self.page
+        text = self.src.text(page).strip() or f"Стр. {page + 1}"
+        return dict(chapter=0, start=page, end=page, color=color, text=text[:160], note=note)
+
     def page_text(self): return self.src.text(self.page)
+
+    def _prime(self, i):
+        """Синхронная мини-картинка целевой страницы, чтобы переход не выглядел пустым."""
+        if i >= len(self._layout) or self.st["pdf_crop"]:
+            return
+        r = self._layout[i]
+        inv = bool(theme(self.st["theme"])["dark"] and self.st["pdf_invert"])
+        dpr = min(3.0, max(1.0, self.devicePixelRatioF() * float(self.st["render_scale"])))
+        w = int(min(1600, max(1, r.width() * dpr)))
+        h = int(min(2200, max(1, r.height() * dpr)))
+        key = (i, w, h, inv, False, self.engine.gen)
+        if key in self.engine.cache or key in self._pix:
+            return
+        try:
+            img = self.engine.sync_render(i, w, h, inv)
+        except Exception:
+            return
+        if img is not None and not img.isNull():
+            self._pixmap(key, img, dpr)
 
     def goto(self, p):
         p = max(0, min(self.count - 1, int(p)))
@@ -893,7 +952,13 @@ class FixedView(QWidget):
         if not self._layout:
             self._relayout()
         if p < len(self._layout):
-            self._scroll_to(self.ox, self._layout[p].top() - float(self.st["pdf_gap"]))
+            # Плавная прокрутка на всю высоту страницы на больших масштабах
+            # показывает промежуточные кадры «белая страница / тёмный desk» —
+            # выглядит как мигание. Переход между страницами делаем мгновенным.
+            self._scroll_to(self.ox, self._layout[p].top() - float(self.st["pdf_gap"]),
+                            smooth=False)
+            self._prime(p)
+            self.update()
         self.changed.emit()
 
     def position(self): return 0, self.page
@@ -918,12 +983,26 @@ class FixedView(QWidget):
     def _pixmap(self, key, img, dpr):
         pm = self._pix.get(key)
         if pm is None:
-            pm = QPixmap.fromImage(img)
+            if img.hasAlphaChannel():
+                # QPdfDocument.render() отдаёт ARGB32 с прозрачным фоном: без
+                # подложки страница сливается с тёмным desk и «гаснет».
+                pm = QPixmap(img.size())
+                pm.fill(QColor("#000000" if key[3] else "#ffffff"))
+                q = QPainter(pm)
+                q.drawImage(0, 0, img)
+                q.end()
+            else:
+                pm = QPixmap.fromImage(img)
             pm.setDevicePixelRatio(dpr)
             self._pix[key] = pm
             if len(self._pix) > 14:
                 for k in list(self._pix)[:6]:
                     self._pix.pop(k, None)
+            # Последний удачно отрисованный кадр страницы: подменяет пустой
+            # плейсхолдер, пока после смены масштаба готовится новый рендер.
+            self._last[(key[0], key[3])] = pm
+            if len(self._last) > 40:
+                self._last.popitem(last=False)
         return pm
 
     def paintEvent(self, _):
@@ -947,6 +1026,12 @@ class FixedView(QWidget):
                     continue
                 visible.append(i)
                 sx, sy = r.x() - self.ox, r.y() - self.oy
+                for n in self.notes:
+                    if n["start"] == i:
+                        p.setPen(Qt.NoPen)
+                        p.setBrush(QColor(n["color"]))
+                        p.drawEllipse(QRectF(sx + r.width() - 16, sy + 8, 8, 8))
+                        break
                 cr = self.engine.crop.get(i) if crop_on else None
                 if self.st["pdf_shadow"]:
                     p.setPen(Qt.NoPen)
@@ -978,9 +1063,14 @@ class FixedView(QWidget):
                     p.drawPixmap(QRectF(sx, sy, r.width(), r.height()),
                                  self._pixmap(key, img, dpr), QRectF(0, 0, img.width(), img.height()))
                 else:
-                    base = QColor(self.st.get("fg" if inv else "bg", "#f2efe9"))
+                    last = self._last.get((i, inv))
+                    if last is not None and not last.isNull():
+                        p.drawPixmap(QRectF(sx, sy, r.width(), r.height()), last,
+                                     QRectF(0, 0, last.width(), last.height()))
+                        continue
+                    base = QColor("#000000" if inv else "#f2efe9")
                     p.fillRect(QRectF(sx, sy, r.width(), r.height()), base)
-                    txt = QColor(self.st.get("bg" if inv else "fg", "#9aa2ad"))
+                    txt = QColor("#e6e8ee" if inv else "#9aa2ad")
                     txt.setAlpha(140)
                     p.setPen(txt)
                     f = p.font(); f.setPointSize(11); p.setFont(f)

@@ -3,13 +3,13 @@ import json, re, time
 from collections import OrderedDict
 from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, Signal
 from PySide6.QtGui import (QAction, QDesktopServices, QGuiApplication, QKeySequence, QIcon,
-                           QPixmap, QPainter, QColor, QFont, QPen)
+                           QPixmap, QPainter, QColor, QFont, QPen, QShortcut)
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget, QTreeWidgetItem,
                                QListWidget, QListWidgetItem, QLineEdit, QTextBrowser, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QSlider, QToolBar, QMenu,
                                QMessageBox, QProgressDialog, QFileDialog, QInputDialog,
                                QApplication, QComboBox, QSpinBox, QCheckBox, QPushButton,
-                               QListView, QStyledItemDelegate, QStyle, QFontComboBox)
+                               QListView, QStyledItemDelegate, QStyle, QFontComboBox, QTextEdit)
 
 from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK
 from formats import open_source, FormatError, plain
@@ -41,6 +41,20 @@ def export_notes(rows, book, path):
     open(path, "w", encoding="utf-8").write(body)
 
 
+def _plain_text(s):
+    return (s or "").replace("\u00ad", "")
+
+
+def _raw_pos(text, plain_index):
+    seen = 0
+    for idx, ch in enumerate(text):
+        if seen == plain_index:
+            return idx
+        if ch != "\u00ad":
+            seen += 1
+    return len(text)
+
+
 class TuneBar(QWidget):
     """Постоянная панель живой настройки рендера."""
     changed = Signal(str, object)
@@ -51,6 +65,7 @@ class TuneBar(QWidget):
         self.kind = kind
         self.st = st
         self.widgets = {}
+        self._labels = []
         root = QHBoxLayout(self)
         root.setContentsMargins(10, 7, 10, 7)
         root.setSpacing(12)
@@ -61,6 +76,7 @@ class TuneBar(QWidget):
             box = QWidget(); v = QVBoxLayout(box)
             v.setContentsMargins(0, 0, 0, 0); v.setSpacing(3)
             lab = QLabel(label); v.addWidget(lab); v.addWidget(w)
+            self._labels.append(lab)
             root.addWidget(box)
             self.widgets[key] = w
             return w
@@ -119,6 +135,19 @@ class TuneBar(QWidget):
         reset = QPushButton("Сброс")
         reset.clicked.connect(lambda: self.changed.emit("__reset__", None))
         root.addWidget(reset, 0, Qt.AlignBottom)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        w = e.size().width()
+        narrow = w < 980
+        for lab in self._labels:
+            lab.setVisible(not narrow)
+        root = self.layout()
+        root.setSpacing(6 if narrow else 12)
+        m = 6 if narrow else 10
+        root.setContentsMargins(m, 6, m, 6)
+        for s in self.findChildren(QSlider):
+            s.setMaximumWidth(58 if w < 700 else 92)
 
     def sync(self, st):
         self.st = st
@@ -235,10 +264,16 @@ class Reader(QMainWindow):
         self.view = FixedView(self.src, self.st) if self.fixed else ReflowView(self.src, self.st)
         self.setCentralWidget(self.view)
         self.setWindowTitle(f"{self.row['title']} — LightRead")
-        self.resize(1180, 860)
+        g = self.screen().availableGeometry()
+        self.resize(min(1180, int(g.width() * 0.9)), min(860, int(g.height() * 0.9)))
         self.tts = Tts(self)
         self.tts_active = False
         self._chunks, self._ci = [], 0
+        self._tts_words, self._tts_wi = [], 0
+        self._tts_chunk_pos = -1
+        self._tts_timer = QTimer(self); self._tts_timer.setInterval(260)
+        self._tts_timer.timeout.connect(self.tts_word_tick)
+        QShortcut(QKeySequence("Escape"), self, self.escape_full)
         self.t0 = time.time()
         self._pos0 = self.view.position()[1]
         self._notes = [dict(r) for r in lib.notes(self.bid)]
@@ -300,6 +335,8 @@ class Reader(QMainWindow):
         self.a_tune = act("Настройка", self.toggle_tune, "F6", True)
         self.a_tune.setChecked(bool(self.st["tune_visible"]))
         self.a_full = act("Полный экран", self.fullscreen, "F11", True)
+        self.a_focus = act("Фокус-режим", self.toggle_chrome, "F10", True)
+        QShortcut(QKeySequence("Ctrl+Shift+N"), self, self.quick_note)
         act("Параметры", self.settings, "F7")
 
         m = self.menuBar().addMenu("Книга")
@@ -316,20 +353,42 @@ class Reader(QMainWindow):
         self.dock = QDockWidget("Навигация", self)
         self.tabs = QTabWidget()
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True)
+        self.tree.setAccessibleName("Оглавление книги")
         self.tree.itemClicked.connect(self.toc_click)
         self.tabs.addTab(self.tree, "Содержание")
         self.marks = QListWidget(); self.marks.itemClicked.connect(self.mark_click)
         self.marks.setContextMenuPolicy(Qt.CustomContextMenu)
         self.marks.customContextMenuRequested.connect(self.mark_menu)
         self.tabs.addTab(self.marks, "Закладки")
+        nw = QWidget(); nv = QVBoxLayout(nw)
+        nv.setContentsMargins(4, 4, 4, 4); nv.setSpacing(5)
         self.notes = QListWidget(); self.notes.itemClicked.connect(self.note_click)
+        self.notes.setAccessibleName("Заметки книги")
+        self.notes.itemDoubleClicked.connect(self.note_edit_load)
         self.notes.setContextMenuPolicy(Qt.CustomContextMenu)
         self.notes.customContextMenuRequested.connect(self.note_menu)
-        self.tabs.addTab(self.notes, "Заметки")
+        self.note_edit = QTextEdit()
+        self.note_edit.setAccessibleName("Редактор заметки")
+        self.note_edit.setPlaceholderText("Текст заметки…")
+        self.note_edit.setMaximumHeight(90)
+        self._edit_note_id = None
+        QShortcut(QKeySequence("Ctrl+Return"), self.note_edit, self.save_note_text)
+        nr = QHBoxLayout()
+        save = QPushButton("Сохранить"); save.clicked.connect(self.save_note_text)
+        new = QPushButton("Новая"); new.clicked.connect(self.new_note_text)
+        nr.addWidget(save); nr.addWidget(new)
+        nv.addWidget(self.notes, 1); nv.addWidget(self.note_edit); nv.addLayout(nr)
+        self.tabs.addTab(nw, "Заметки")
         sw = QWidget(); sv = QVBoxLayout(sw)
         self.sq = QLineEdit(); self.sq.setPlaceholderText("Текст в книге…")
+        self.sq.setAccessibleName("Поиск по книге")
         self.sq.returnPressed.connect(self.search)
+        self._search_timer = QTimer(self); self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self.search)
+        self.sq.textChanged.connect(lambda _: self._search_timer.start())
         self.sres = QListWidget(); self.sres.itemClicked.connect(self.search_click)
+        self.sres.setAccessibleName("Результаты поиска")
         sv.addWidget(self.sq); sv.addWidget(self.sres)
         sr = QHBoxLayout()
         self.scount = QLabel("0 совп.")
@@ -346,6 +405,15 @@ class Reader(QMainWindow):
         self.dres = QTextBrowser(); self.dres.setOpenExternalLinks(True)
         dv.addWidget(self.dq); dv.addWidget(self.dres)
         self.tabs.addTab(dw, "Словарь")
+        vw = QWidget(); vvl = QVBoxLayout(vw)
+        self.tts_now = QLabel("Озвучка не активна"); self.tts_now.setWordWrap(True)
+        self.tts_next_label = QLabel("—"); self.tts_next_label.setWordWrap(True)
+        vvl.addWidget(QLabel("Сейчас читает:"))
+        vvl.addWidget(self.tts_now)
+        vvl.addWidget(QLabel("Далее:"))
+        vvl.addWidget(self.tts_next_label)
+        vvl.addStretch(1)
+        self.tabs.addTab(vw, "Озвучка")
         if self.fixed:
             self.thumbs = QListView()
             self.thumbs.setViewMode(QListView.IconMode)
@@ -403,6 +471,8 @@ class Reader(QMainWindow):
         self.menuBar().setVisible(vis)
         self.statusBar().setVisible(vis)
         self.tune_host.setVisible(vis and self.st["tune_visible"])
+        if hasattr(self, "a_focus"):
+            self.a_focus.setChecked(not vis)
 
     def toggle_panel(self):
         self.dock.setVisible(not self.dock.isVisible())
@@ -426,10 +496,17 @@ class Reader(QMainWindow):
             parents.append(it)
         self.tree.expandToDepth(0)
 
+    @staticmethod
+    def _page_from_anchor(anchor):
+        if isinstance(anchor, (int, float)):
+            return max(0, int(anchor))
+        m = re.search(r"\d+", str(anchor or ""))
+        return max(0, int(m.group(0)) if m else 0)
+
     def toc_click(self, it, _):
         ch, anchor = it.data(0, Qt.UserRole)
         if self.fixed:
-            self.view.goto(int(anchor or 0))
+            self.view.goto(self._page_from_anchor(anchor))
         else:
             if ch != self.view.ch:
                 self.view.load(ch, 0)
@@ -471,8 +548,11 @@ class Reader(QMainWindow):
 
     def note_click(self, it):
         r = it.data(Qt.UserRole)
-        if not self.fixed:
-            self.view.restore(r["chapter"], r["start"]); self.view.setFocus()
+        if self.fixed:
+            self.view.goto(r["start"])
+        else:
+            self.view.restore(r["chapter"], r["start"])
+        self.view.setFocus()
 
     def note_menu(self, pos):
         it = self.notes.itemAt(pos)
@@ -485,19 +565,76 @@ class Reader(QMainWindow):
         m.addAction("Экспорт всех…", self.export_notes)
         m.exec(self.notes.mapToGlobal(pos))
 
+    def quick_note(self):
+        self.open_panel(2)
+        self.note_edit.setFocus()
+        self.statusBar().showMessage("Введите заметку и нажми «Сохранить»", 3000)
+
+    def new_note_text(self):
+        self._edit_note_id = None
+        self.note_edit.clear()
+        self.note_edit.setFocus()
+
+    def note_edit_load(self, it):
+        r = it.data(Qt.UserRole)
+        self._edit_note_id = r["id"]
+        self.note_edit.setPlainText(r["note"] or "")
+        self.note_edit.setFocus()
+
+    def save_note_text(self):
+        text = self.note_edit.toPlainText().strip()
+        if not text:
+            self.statusBar().showMessage("Введите текст заметки", 2000)
+            return
+        if self._edit_note_id:
+            self.lib.note_upd(self._edit_note_id, note=text)
+        else:
+            d = self.view.add_note(HL[0], text)
+            if not d:
+                ch, pos = self.view.position()
+                d = dict(chapter=ch, start=pos, end=pos + 1,
+                         color=HL[0], text=self.view.page_text()[:160], note=text)
+            self.lib.note_add(self.bid, d["chapter"], d["start"], d["end"],
+                              d["color"], d["text"], text, anchor=_plain_text(d.get("text", ""))[:240])
+            self._edit_note_id = None
+        self.note_edit.clear()
+        self.refresh_notes()
+        self.statusBar().showMessage("Заметка сохранена", 2000)
+
     def edit_note(self, r):
-        txt, ok = QInputDialog.getMultiLineText(self, "Заметка", "Текст заметки:", r["note"] or "")
-        if ok:
-            self.lib.note_upd(r["id"], note=txt); self.refresh_notes()
+        self.note_edit_load_from_row(r)
+
+    def note_edit_load_from_row(self, r):
+        self._edit_note_id = r["id"]
+        self.note_edit.setPlainText(r["note"] or "")
+        self.open_panel(2)
+        self.note_edit.setFocus()
 
     def del_note(self, r):
         self.lib.note_del(r["id"]); self.refresh_notes()
 
     def refresh_notes(self):
         self._notes = [dict(x) for x in self.lib.notes(self.bid)]
-        if not self.fixed:
-            self.view.notes = self._notes
-            self.view.load(self.view.ch, self.view.position()[1])
+        self.view.notes = self._notes
+        if self.fixed:
+            self.view.apply_notes()
+            self.view.update()
+        else:
+            pos = self.view.position()[1]
+            self.view.load(self.view.ch, pos)
+            text = getattr(self.view, "_text", "")
+            plain = _plain_text(text)
+            for n in self._notes:
+                quote = n.get("anchor")
+                if not quote or n["chapter"] != self.view.ch:
+                    continue
+                at = plain.find(quote)
+                if at < 0:
+                    continue
+                start, end = _raw_pos(text, at), _raw_pos(text, at + len(quote))
+                if start != n["start"] or end != n["end"]:
+                    n["start"], n["end"] = start, end
+                    self.lib.note_upd(n["id"], start=start, end=end)
         self.fill_notes()
 
     def export_notes(self):
@@ -556,6 +693,7 @@ class Reader(QMainWindow):
     def closeEvent(self, e):
         self.save_pos()
         self.tts.stop()
+        self._tts_clear()
         secs = time.time() - self.t0
         pages = 1 if self.fixed else max(0, self.view.position()[1] - self._pos0) // 1800
         self.lib.stats_add(self.bid, secs, pages)
@@ -613,6 +751,7 @@ class Reader(QMainWindow):
             m.addAction("Читать вслух отсюда", lambda: self.tts_from(sel))
         else:
             m.addAction("Закладка", self.add_mark)
+            m.addAction("Заметка к странице…", lambda: self.make_note(HL[0], None))
             m.addAction("Поиск в книге", lambda: self.open_panel(3))
             if not self.fixed:
                 m.addAction("Выделить всё и скопировать",
@@ -633,12 +772,14 @@ class Reader(QMainWindow):
             note, ok = QInputDialog.getMultiLineText(self, "Заметка", "Комментарий:", "")
             if not ok:
                 return
-        d = self.view.add_note(color, note) if not self.fixed else None
+        d = self.view.add_note(color, note)
         if d:
-            self.lib.note_add(self.bid, d["chapter"], d["start"], d["end"], color, d["text"], note)
+            self.lib.note_add(self.bid, d["chapter"], d["start"], d["end"], color, d["text"], note,
+                              anchor=_plain_text(d.get("text", ""))[:240])
             self.refresh_notes()
 
     def search(self):
+        self._search_timer.stop()
         q = self.sq.text().strip()
         if len(q) < 2:
             return
@@ -676,10 +817,21 @@ class Reader(QMainWindow):
                 self.sres.addItem(it)
                 hits += 1; start = k + len(q)
         pd.close()
+        if self.fixed and not hits:
+            for _lvl, title, _ch, page in self.view.src.toc:
+                if ql in (title or "").lower():
+                    it = QListWidgetItem(f"Оглавление: {title}")
+                    it.setData(Qt.UserRole, (0, page))
+                    self.sres.addItem(it)
+                    hits += 1
         self._hit_q = q
         self._hit_i = -1
-        self.scount.setText(f"{self.sres.count()} совп.")
-        self.statusBar().showMessage(f"Найдено: {self.sres.count()}  (F3 / Shift+F3)", 4000)
+        self.scount.setText(f"{hits} совп.")
+        if self.fixed and not hits:
+            self.statusBar().showMessage(
+                "Совпадений нет: у скана может отсутствовать текстовый слой", 6000)
+        else:
+            self.statusBar().showMessage(f"Найдено: {hits}  (F3 / Shift+F3)", 4000)
 
     def search_step(self, d):
         """Переход к следующему/предыдущему совпадению (как в ReadEra)."""
@@ -701,7 +853,7 @@ class Reader(QMainWindow):
     def search_click(self, it):
         ch, pos = it.data(Qt.UserRole)
         if self.fixed:
-            self.view.goto(pos)
+            self.view.goto(self._page_from_anchor(pos))
         else:
             if ch != self.view.ch:
                 self.view.load(ch, 0)
@@ -727,9 +879,20 @@ class Reader(QMainWindow):
                 f"<a href='https://translate.google.com/?text={word}'>Перевод</a><br><br>"
                 f"<i>Папка со словарями StarDict: F7 → Сервисы.</i>")
 
+    def _tts_clear(self):
+        self._tts_timer.stop()
+        self._tts_words, self._tts_wi = [], 0
+        self._tts_chunk_pos = -1
+        self.tts_now.setText("Озвучка не активна")
+        self.tts_next_label.setText("—")
+        if not self.fixed:
+            self.view.sel = None
+            self.view.update()
+
     def tts_toggle(self):
         if self.tts_active:
-            self.tts_active = False; self.tts.stop(); self.a_tts.setChecked(False); return
+            self.tts_active = False; self.tts.stop(); self._tts_clear()
+            self.a_tts.setChecked(False); return
         if not self.tts.ok():
             QMessageBox.warning(self, "Озвучка", "Движок TTS недоступен.")
             self.a_tts.setChecked(False); return
@@ -750,15 +913,70 @@ class Reader(QMainWindow):
         self.tts_active = True; self.a_tts.setChecked(True)
         self.tts_next()
 
+    def tts_word_tick(self):
+        if self._tts_wi < len(self._tts_words):
+            self._tts_wi += 1
+            self._tts_labels()
+            self._tts_select_word()
+            word = self._tts_words[min(self._tts_wi, len(self._tts_words) - 1)]
+            rate = float(self.st.get("tts_rate", 0) or 0)
+            delay = (260 + max(0, len(word) - 4) * 45) / max(0.35, 1.0 + rate)
+            self._tts_timer.setInterval(max(90, min(900, int(delay))))
+        else:
+            self._tts_timer.stop()
+
+    def _tts_labels(self):
+        words = self._tts_words
+        if not words or not self.tts_active:
+            self.tts_now.setText("Озвучка не активна")
+            self.tts_next_label.setText("—")
+            return
+        i = min(self._tts_wi, len(words) - 1)
+        def esc(s):
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        before = esc(" ".join(words[max(0, i - 3):i]))
+        cur = esc(words[i])
+        after = esc(" ".join(words[i + 1:i + 6]))
+        self.tts_now.setText(f"{before} <b style='color:#7170ff'>{cur}</b> {after}".strip())
+        upcoming = self._chunks[self._ci:self._ci + 2]
+        self.tts_next_label.setText(" / ".join(x[:90] for x in upcoming) or "—")
+
+    def _tts_select(self, chunk):
+        if self.fixed or not chunk:
+            return
+        text = getattr(self.view, "_text", "")
+        pos = text.find(chunk[:40])
+        self._tts_chunk_pos = pos
+        if pos >= 0:
+            self.view.sel = (pos, min(len(text), pos + len(chunk)))
+            self.view.update()
+
+    def _tts_select_word(self):
+        if self.fixed or not self._tts_words or self._tts_chunk_pos < 0:
+            return
+        text = getattr(self.view, "_text", "")
+        idx = min(self._tts_wi, len(self._tts_words) - 1)
+        offset = len(" ".join(self._tts_words[:idx]))
+        pos = self._tts_chunk_pos + offset
+        word = self._tts_words[idx]
+        self.view.sel = (pos, min(len(text), pos + len(word)))
+        self.view.update()
+
     def tts_next(self):
         if not self.tts_active:
             return
         if self._ci < len(self._chunks):
-            self.tts.say(self._chunks[self._ci]); self._ci += 1
+            chunk = self._chunks[self._ci]
+            self.tts.say(chunk)
+            self._ci += 1
+            self._tts_words, self._tts_wi = chunk.split(), 0
+            self._tts_select(chunk)
+            self._tts_labels()
+            self._tts_timer.start()
         elif self.st["tts_follow"] and self.view.next():
             QTimer.singleShot(220, self.tts_feed)
         else:
-            self.tts_active = False; self.a_tts.setChecked(False)
+            self.tts_active = False; self.a_tts.setChecked(False); self._tts_clear()
 
     def on_tts_state(self, s):
         if "Ready" in s and self.tts_active:
@@ -874,10 +1092,20 @@ class Reader(QMainWindow):
         self.apply(dict(S))
 
     def fullscreen(self):
+        main = self.window()
+        if main is not self and hasattr(main, "reader_fullscreen"):
+            main.reader_fullscreen(self)
+            self.a_full.setChecked(getattr(main, "_reading_full", False))
+            return
         if self.isFullScreen():
             self.showNormal(); self.a_full.setChecked(False)
         else:
             self.showFullScreen(); self.a_full.setChecked(True)
+
+    def escape_full(self):
+        main = self.window()
+        if getattr(main, "_reading_full", False) or self.isFullScreen():
+            self.fullscreen()
 
     def info(self):
         r = self.lib.book(self.bid)
