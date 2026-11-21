@@ -28,17 +28,20 @@ SETFILE = DATA / "settings.json"
 
 # Чернила и бумага: тёплый бумажный свет, холодные чернильные поверхности,
 # оранжевый маркер как доминантный акцент, синий — ссылки, зелёный — прогресс.
+# Нейтральные, хорошо читаемые темы: бумажные светлые и спокойные тёмные.
+# Ярко-зелёные режимы убраны — они утомляют и плохо сочетаются с акцентом.
 THEMES = {
-    "День":     dict(bg="#fdfbf7", fg="#23211e", link="#2f6f9e", sel="#f5dda9", dark=False, desk="#cbc5b9"),
-    "Сепия":    dict(bg="#f6ecd8", fg="#3b3224", link="#8a6335", sel="#e5c99e", dark=False, desk="#b7a282"),
-    "Ночь":     dict(bg="#15181e", fg="#ced3da", link="#8ab4f8", sel="#344057", dark=True,  desk="#0c0e12"),
-    "AMOLED":   dict(bg="#000000", fg="#b8bdc5", link="#7aa7f7", sel="#222b3a", dark=True,  desk="#000000"),
+    "День":     dict(bg="#fffdf8", fg="#22201d", link="#2f6f9e", sel="#ffe1a8", dark=False, desk="#cfc8bc"),
+    "Сепия":    dict(bg="#f7edd9", fg="#3a3024", link="#8a5a22", sel="#e6cb9f", dark=False, desk="#b9a887"),
+    "Лён":      dict(bg="#f2f0ec", fg="#2b2b2e", link="#3d63a8", sel="#d9ddea", dark=False, desk="#c4c2bd"),
+    "Ночь":     dict(bg="#161a20", fg="#d6dbe3", link="#8ab4f8", sel="#35445d", dark=True,  desk="#0d1014"),
+    "AMOLED":   dict(bg="#000000", fg="#c2c7cf", link="#7aa7f7", sel="#27303e", dark=True,  desk="#000000"),
+    "Сумерки":  dict(bg="#2b211b", fg="#dccbbb", link="#e0a96d", sel="#5a4534", dark=True,  desk="#16100c"),
+    "Графит":   dict(bg="#1b1e24", fg="#d8dce4", link="#8ab4f8", sel="#343d4d", dark=True,  desk="#0f1216"),
     "Контраст": dict(bg="#000000", fg="#ffffff", link="#ffd24a", sel="#4a4a4a", dark=True,  desk="#000000"),
-    "Зелень":   dict(bg="#dce8d8", fg="#1d2b1e", link="#216039", sel="#b3d0ae", dark=False, desk="#98ac95"),
-    # Режимы ReadEra: сумерки (тёплый тусклый свет) и консоль (зелёный терминал).
-    "Сумерки":  dict(bg="#2b211b", fg="#c9b8a5", link="#e0a96d", sel="#5a4534", dark=True,  desk="#16100c"),
-    "Консоль":  dict(bg="#04140a", fg="#8dffb0", link="#b6ff5c", sel="#1f4d2d", dark=True,  desk="#010804"),
 }
+# Старые сохранённые названия продолжают работать.
+THEME_ALIASES = {"Зелень": "Лён", "Консоль": "Графит"}
 HL = ["#f0b552", "#63cf8a", "#57bfe8", "#ef8fbd", "#b79ce6"]
 
 ACCENT = "#ec8f5a"
@@ -68,6 +71,8 @@ class Settings(dict):
             pass
         for k, v in DEFAULTS.items():
             self.setdefault(k, v)
+        if self.get("theme") in THEME_ALIASES:
+            self["theme"] = THEME_ALIASES[self["theme"]]
 
     def save(self):
         try:
@@ -79,8 +84,13 @@ class Settings(dict):
 S = Settings()
 
 
+def norm_theme(name=None):
+    name = THEME_ALIASES.get(name, name)
+    return name if name in THEMES else "Сепия"
+
+
 def theme(name=None):
-    return THEMES.get(name or S["theme"], THEMES["Сепия"])
+    return THEMES[norm_theme(name or S["theme"])]
 
 
 def human(n):

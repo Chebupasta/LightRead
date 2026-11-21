@@ -6,7 +6,7 @@
 """
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
-from common import THEMES, ACCENT
+from common import THEMES, ACCENT, norm_theme
 
 _last = None
 
@@ -198,7 +198,7 @@ def apply_theme(name, force=False):
     app = QApplication.instance()
     if app is None:
         return
-    name = name if name in THEMES else "Сепия"
+    name = norm_theme(name)
     if not force and _last == name:
         return
     _last = name
