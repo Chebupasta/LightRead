@@ -1,7 +1,7 @@
 """SQLite-хранилище библиотеки."""
 import sqlite3, threading, time
 from pathlib import Path
-from common import DB, norm
+from common import DB, COVERS, S, norm
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS books(
@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS books(
  lang TEXT, annotation TEXT, genres TEXT, size INTEGER, mtime REAL, added REAL,
  last_read REAL DEFAULT 0, progress REAL DEFAULT 0, status TEXT DEFAULT 'new', favorite INTEGER DEFAULT 0,
  chapter INTEGER DEFAULT 0, pos INTEGER DEFAULT 0, pages INTEGER DEFAULT 0,
- rsettings TEXT DEFAULT '', seconds REAL DEFAULT 0, manual_meta INTEGER DEFAULT 0);
+ rsettings TEXT DEFAULT '', seconds REAL DEFAULT 0, manual_meta INTEGER DEFAULT 0,
+ fhash TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE);
 CREATE TABLE IF NOT EXISTS book_tag(tag INTEGER, book INTEGER, PRIMARY KEY(tag,book));
 CREATE TABLE IF NOT EXISTS coll(id INTEGER PRIMARY KEY, name TEXT UNIQUE);
@@ -17,7 +18,7 @@ CREATE TABLE IF NOT EXISTS coll_book(coll INTEGER, book INTEGER, PRIMARY KEY(col
 CREATE TABLE IF NOT EXISTS marks(id INTEGER PRIMARY KEY, book INTEGER, chapter INTEGER, pos INTEGER,
  title TEXT, text TEXT, created REAL);
 CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY, book INTEGER, chapter INTEGER, start INTEGER,
- end INTEGER, color TEXT, text TEXT, note TEXT, created REAL);
+ end INTEGER, color TEXT, text TEXT, note TEXT, created REAL, anchor TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS stats(day TEXT, book INTEGER, seconds REAL, pages INTEGER, PRIMARY KEY(day,book));
 CREATE INDEX IF NOT EXISTS i_title ON books(title); CREATE INDEX IF NOT EXISTS i_read ON books(last_read);
 """
@@ -37,7 +38,35 @@ class Library:
             cols = {r["name"] for r in self.c.execute("PRAGMA table_info(books)")}
             if "manual_meta" not in cols:
                 self.c.execute("ALTER TABLE books ADD COLUMN manual_meta INTEGER DEFAULT 0")
+            if "fhash" not in cols:
+                self.c.execute("ALTER TABLE books ADD COLUMN fhash TEXT DEFAULT ''")
+            ncols = {r["name"] for r in self.c.execute("PRAGMA table_info(notes)")}
+            if "anchor" not in ncols:
+                self.c.execute("ALTER TABLE notes ADD COLUMN anchor TEXT DEFAULT ''")
             self.c.commit()
+            self._dedupe_paths()
+
+    def _dedupe_paths(self):
+        """Слить строки, которые указывают на один и тот же файл."""
+        rows = self.q("SELECT id,path FROM books ORDER BY id")
+        keepers = {}
+        for r in rows:
+            key = norm(r["path"])
+            if key not in keepers:
+                keepers[key] = r["id"]
+                if key != r["path"]:
+                    self.x("UPDATE books SET path=? WHERE id=?", (key, r["id"]))
+                continue
+            old, new = r["id"], keepers[key]
+            for table in ("marks", "notes", "stats", "book_tag", "coll_book"):
+                self.c.execute(f"UPDATE OR IGNORE {table} SET book=? WHERE book=?", (new, old))
+            self.x("DELETE FROM books WHERE id=?", (old,))
+            old_cover, new_cover = COVERS / f"{old}.png", COVERS / f"{new}.png"
+            if new_cover.exists():
+                try:
+                    old_cover.unlink()
+                except OSError:
+                    pass
 
     def q(self, sql, a=()):
         with self.lock:
@@ -54,18 +83,18 @@ class Library:
         if old:
             if old[0]["manual_meta"]:
                 # метаданные, введённые вручную, сканер не перезаписывает
-                self.x("UPDATE books SET fmt=?,size=?,mtime=? WHERE id=?",
-                       (d["fmt"], d["size"], d["mtime"], old[0]["id"]))
+                self.x("UPDATE books SET fmt=?,size=?,mtime=?,fhash=? WHERE id=?",
+                       (d["fmt"], d["size"], d["mtime"], d.get("fhash", ""), old[0]["id"]))
             else:
                 self.x("UPDATE books SET fmt=?,title=?,author=?,series=?,seq=?,lang=?,annotation=?,genres=?,"
-                       "size=?,mtime=? WHERE id=?",
+                       "size=?,mtime=?,fhash=? WHERE id=?",
                        (d["fmt"], d["title"], d["author"], d["series"], d["seq"], d["lang"], d["annotation"],
-                        d["genres"], d["size"], d["mtime"], old[0]["id"]))
+                        d["genres"], d["size"], d["mtime"], d.get("fhash", ""), old[0]["id"]))
             return old[0]["id"]
-        return self.x("INSERT INTO books(path,fmt,title,author,series,seq,lang,annotation,genres,size,mtime,added)"
-                      " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        return self.x("INSERT INTO books(path,fmt,title,author,series,seq,lang,annotation,genres,size,mtime,added,fhash)"
+                      " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (norm(d["path"]), d["fmt"], d["title"], d["author"], d["series"], d["seq"], d["lang"],
-                       d["annotation"], d["genres"], d["size"], d["mtime"], time.time()))
+                       d["annotation"], d["genres"], d["size"], d["mtime"], time.time(), d.get("fhash", "")))
 
     def known(self):
         return {r["path"]: (r["size"], r["mtime"]) for r in self.q("SELECT path,size,mtime FROM books")}
@@ -78,10 +107,37 @@ class Library:
         r = self.q("SELECT * FROM books WHERE path=?", (norm(path),))
         return r[0] if r else None
 
+    def _smart_match(self, b, r):
+        if r.get("status") and b["status"] != r["status"]:
+            return False
+        if r.get("fmt") and b["fmt"] != r["fmt"]:
+            return False
+        if r.get("favorite") and not b["favorite"]:
+            return False
+        if r.get("tag") and not self.q("SELECT 1 FROM book_tag WHERE tag=? AND book=?",
+                                       (r["tag"], b["id"])):
+            return False
+        if r.get("days") and time.time() - (b["added"] or 0) > float(r["days"]) * 86400:
+            return False
+        if b["progress"] < float(r.get("min_progress", 0)):
+            return False
+        if b["progress"] > float(r.get("max_progress", 1)):
+            return False
+        return True
+
     def books(self, flt=None, search="", sort="added_desc"):
         w, a = [], []
         f = flt or {}
         k = f.get("kind")
+        if k == "smart":
+            rule = next((x for x in S.get("smart", []) if x.get("name") == f.get("value")), None)
+            rows = [r for r in self.q("SELECT * FROM books")
+                    if rule and self._smart_match(r, rule)]
+            if search:
+                q = f"%{search}%".lower()
+                rows = [r for r in rows if any(q in str(r[c] or "").lower()
+                                               for c in ("title", "author", "series", "annotation"))]
+            return rows
         if k == "status": w.append("status=?"); a.append(f["value"])
         elif k == "fav": w.append("favorite=1")
         elif k == "recent": w.append("last_read>0")
@@ -93,7 +149,11 @@ class Library:
         elif k == "coll": w.append("id IN (SELECT book FROM coll_book WHERE coll=?)"); a.append(f["value"])
         elif k == "tag": w.append("id IN (SELECT book FROM book_tag WHERE tag=?)"); a.append(f["value"])
         if search:
-            w.append("(title LIKE ? OR author LIKE ? OR series LIKE ?)"); a += [f"%{search}%"] * 3
+            like = f"%{search}%"
+            w.append("(title LIKE ? OR author LIKE ? OR series LIKE ? OR annotation LIKE ? OR "
+                     "id IN (SELECT book FROM notes WHERE note LIKE ? OR text LIKE ?) OR "
+                     "id IN (SELECT book FROM marks WHERE title LIKE ? OR text LIKE ?))")
+            a += [like] * 8
         sql = "SELECT * FROM books" + (" WHERE " + " AND ".join(w) if w else "")
         if k == "recent":
             sql += " ORDER BY last_read DESC LIMIT 60"
@@ -183,9 +243,13 @@ class Library:
             self.x(f"UPDATE marks SET {','.join(k+'=?' for k in kw)} WHERE id=?", (*kw.values(), mid))
 
     def notes(self, bid): return self.q("SELECT * FROM notes WHERE book=? ORDER BY chapter,start", (bid,))
-    def note_add(self, bid, ch, s, e, color, text, note=""):
-        return self.x("INSERT INTO notes(book,chapter,start,end,color,text,note,created) VALUES(?,?,?,?,?,?,?,?)",
-                      (bid, ch, s, e, color, text, note, time.time()))
+    def note_add(self, bid, ch, s, e, color, text, note="", anchor=""):
+        return self.x("INSERT INTO notes(book,chapter,start,end,color,text,note,created,anchor) "
+                      "VALUES(?,?,?,?,?,?,?,?,?)",
+                      (bid, ch, s, e, color, text, note, time.time(), anchor))
+
+    def hashes(self):
+        return {r["fhash"]: r["path"] for r in self.q("SELECT fhash,path FROM books WHERE fhash!=''")}
     def note_upd(self, nid, **kw):
         if kw:
             self.x(f"UPDATE notes SET {','.join(k+'=?' for k in kw)} WHERE id=?", (*kw.values(), nid))
