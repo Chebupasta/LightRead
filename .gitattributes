@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.py text eol=crlf
+*.bat text eol=crlf
+*.sh text eol=lf
+
+*.db binary
+*.sqlite binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.zip binary
