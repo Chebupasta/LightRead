@@ -12,7 +12,8 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["APPDATA"] = str(TMP)
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtWidgets import QApplication, QMessageBox, QTabBar
+from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtWidgets import QApplication, QMessageBox, QTabBar, QStyleOptionViewItem
 
 app = QApplication.instance() or QApplication([])
 QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
@@ -82,6 +83,42 @@ class TestMarkdown(unittest.TestCase):
         with settings(hyphenate=False):
             html = formats.text_to_html("Programming extraordinarily complicated sentence")
             self.assertNotIn("\u00ad", html)
+
+
+class TestLocalReliability(unittest.TestCase):
+    def test_corrupt_db_is_recovered(self):
+        db = TMP / "corrupt.db"
+        db.write_bytes(b"this is not a sqlite database")
+        lib = libmod.Library(path=str(db))
+        try:
+            self.assertFalse(lib.integrity_ok)
+            self.assertTrue(Path(lib.integrity_backup).exists())
+            self.assertEqual(lib.q("SELECT * FROM books"), [])
+        finally:
+            lib.c.close()
+
+    def test_fts_search_finds_note_text(self):
+        db = TMP / f"fts_{self.id()}.db"
+        lib = libmod.Library(path=str(db))
+        try:
+            p = make_book(TMP / f"fts_{self.id()}.fb2")
+            bid = lib.upsert(dict(path=str(p), fmt="fb2", title="T", author="", series="", seq=0,
+                                  lang="", annotation="", genres="", size=1, mtime=1))
+            lib.note_add(bid, 0, 0, 3, "#fff", "цитата", "УНИКАЛЬНОЕ_СЛОВО_ФТС")
+            self.assertTrue(lib.fts_ok)
+            rows = lib.books(search="УНИКАЛЬНОЕ_СЛОВО_ФТС")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["id"], bid)
+        finally:
+            lib.c.close()
+
+    def test_network_actions_hidden_by_default(self):
+        win = ui.Win()
+        try:
+            texts = [a.text() for a in win.menuBar().actions()]
+            self.assertFalse(any("OPDS" in t for t in texts))
+        finally:
+            win.close()
 
 
 class TestHashDedupe(unittest.TestCase):
@@ -208,6 +245,18 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertEqual(self.win._continue_id, self.bid)
         self.assertGreaterEqual(self.win.home.recent_layout.count(), 1)
 
+    def test_hover_actions_rendered(self):
+        self.win.set_view("grid")
+        pm = QPixmap(300, 400)
+        p = QPainter(pm)
+        opt = QStyleOptionViewItem()
+        opt.rect = pm.rect()
+        self.win.deleg.hover = self.bid
+        self.win.deleg.paint(p, opt, self.win.model.index(0, 0))
+        p.end()
+        self.assertTrue({"read", "fav", "info"}.issubset(self.win.deleg.action_rects))
+        self.win.deleg.hover = None
+
     def test_fullscreen_restores_on_reader_close(self):
         self.win.open_book(self.bid)
         reader = self.win.reader
@@ -236,6 +285,25 @@ class TestHomeAndTabs(unittest.TestCase):
 
 
 class TestNoteEditor(unittest.TestCase):
+    def test_draft_autosaved_and_cleared(self):
+        db = TMP / f"draft_{self.id()}.db"
+        lib = libmod.Library(path=str(db))
+        p = make_book(TMP / f"draft_{self.id()}.fb2")
+        bid = lib.upsert(dict(path=str(p), fmt="fb2", title="T", author="", series="", seq=0,
+                              lang="", annotation="", genres="", size=1, mtime=1))
+        with settings(note_drafts={}):
+            reader = Reader(lib, lib.book(bid))
+            try:
+                reader.note_edit.setPlainText("черновик")
+                reader.save_draft()
+                self.assertEqual(common.S["note_drafts"][str(bid)], "черновик")
+                reader.note_edit.setPlainText("готово")
+                reader.save_note_text()
+                self.assertNotIn(str(bid), common.S["note_drafts"])
+            finally:
+                reader.close()
+                lib.c.close()
+
     def test_editor_saves_note_and_plain_anchor(self):
         db = TMP / f"note_{self.id()}.db"
         lib = libmod.Library(path=str(db))

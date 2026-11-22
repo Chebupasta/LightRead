@@ -156,7 +156,7 @@ DEFAULTS = dict(
     dict_paths=[], save_per_book=False, tune_visible=True,
     session_tabs=[], session_active=None, session_groups={}, smart=[], daily_goal=0,
     accent="indigo", opds=[], webdav_url="", webdav_user="", webdav_password="", webdav_auto=False,
-    update_url="", update_auto=False, hyphenate=False,
+    update_url="", update_auto=False, hyphenate=False, show_network=False, note_drafts={},
 )
 
 ACCENTS = {
