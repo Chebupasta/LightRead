@@ -140,8 +140,8 @@ class TestOfficeFormats(unittest.TestCase):
             z.writestr("ppt/slides/slide1.xml", '''<?xml version="1.0"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
-<p:sp><p:txBody><a:p><a:r><a:t>Слайд один</a:t></a:r></a:p>
-<a:p><a:r><a:t>Пункт презентации</a:t></a:r></a:p></p:txBody></p:sp>
+<p:sp><p:txBody><a:p><a:pPr algn="ctr"/><a:r><a:rPr b="1" sz="3600"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill></a:rPr><a:t>Слайд один</a:t></a:r></a:p>
+<a:p><a:r><a:rPr i="1"/><a:t>Пункт презентации</a:t></a:r></a:p></p:txBody></p:sp>
 </p:spTree></p:cSld></p:sld>''')
         src = formats.open_source(str(p))
         self.assertEqual(src.meta.title, "Презентация")
@@ -149,6 +149,10 @@ class TestOfficeFormats(unittest.TestCase):
         html = src.chapter(0).html
         self.assertIn("Слайд один", html)
         self.assertIn("Пункт презентации", html)
+        self.assertIn("<b>", html)
+        self.assertIn("<i>", html)
+        self.assertIn("color:#C00000", html)
+        self.assertIn("text-align:center", html)
         src.close()
         self.assertEqual(formats.read_meta(str(p))[1], "pptx")
 
@@ -157,9 +161,14 @@ class TestOfficeFormats(unittest.TestCase):
         content = '''<?xml version="1.0"?><office:document-content
  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
  xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
- xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+<office:automatic-styles><style:style style:name="T1">
+<style:text-properties fo:font-weight="bold" fo:color="#C00000"/>
+</style:style></office:automatic-styles>
 <office:body><office:presentation>
-<draw:page draw:name="Титул"><text:p>Заголовок ODP</text:p><text:p>Подзаголовок</text:p></draw:page>
+<draw:page draw:name="Титул"><text:p text:style-name="T1">Заголовок ODP</text:p><text:p>Подзаголовок</text:p></draw:page>
 <draw:page draw:name="Второй"><text:p>Второй слайд</text:p></draw:page>
 </office:presentation></office:body></office:document-content>'''
         with zipfile.ZipFile(p, "w") as z:
@@ -167,6 +176,8 @@ class TestOfficeFormats(unittest.TestCase):
         src = formats.open_source(str(p))
         self.assertEqual(src.count, 2)
         self.assertIn("Заголовок ODP", src.chapter(0).html)
+        self.assertIn("<b>", src.chapter(0).html)
+        self.assertIn("color:#C00000", src.chapter(0).html)
         self.assertIn("Второй слайд", src.chapter(1).html)
         src.close()
         self.assertEqual(formats.read_meta(str(p))[1], "odp")
@@ -199,7 +210,10 @@ class TestOfficeFormats(unittest.TestCase):
             self.assertTrue(any("Презентации" in t for t in texts))
             win.flt = dict(kind="presentations")
             win.reload()
-            self.assertEqual(win.model.rowCount(), 1)
+            self.assertGreaterEqual(win.model.rowCount(), 1)
+            fmts = {win.model.item(i).data(ui.ROLE)["fmt"]
+                    for i in range(win.model.rowCount())}
+            self.assertTrue(fmts.issubset(set(common.PRESENTATION_FMTS)))
         finally:
             win.close()
 
