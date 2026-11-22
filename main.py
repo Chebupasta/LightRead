@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """LightRead — точка входа: single-instance, CLI, ассоциации файлов."""
-import sys, hashlib
+import os, sys, hashlib
 from pathlib import Path
+
+os.environ.setdefault(
+    "QT_LOGGING_RULES",
+    "qt.qpa.fonts.warning=false;qt.text.font.db.warning=false;qt.multimedia.ffmpeg.info=false")
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import (QIcon, QPixmap, QPainter, QColor, QFont,
                            QLinearGradient, QPainterPath, QPen)

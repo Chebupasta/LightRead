@@ -217,6 +217,15 @@ class TestOfficeFormats(unittest.TestCase):
         finally:
             win.close()
 
+    def test_malformed_office_still_opens_as_text(self):
+        p = TMP / "broken.docx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>Текст из повреждённого файла</w:t>")
+        src = formats.open_source(str(p))
+        self.assertGreaterEqual(src.count, 1)
+        self.assertIn("Текст из повреждённого файла", src.chapter(0).html)
+        src.close()
+
     def test_presentation_extensions_registered(self):
         for ext in (".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"):
             self.assertIn(ext, formats.ALL_EXTS)

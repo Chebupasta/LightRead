@@ -2155,17 +2155,55 @@ ALL_EXTS = _BASE_EXTS | _fx.EXTRA_EXTS
 
 _orig_open = open_source
 
+def _office_text_fallback(path):
+    """Если сложный парсер не справился — вытащить хоть текст, а не падать ошибкой."""
+    try:
+        parts = []
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                for name in z.namelist():
+                    if not name.lower().endswith((".xml", ".rels")):
+                        continue
+                    low = name.lower()
+                    if not any(k in low for k in ("document", "slide", "content", "notes", "styles")):
+                        continue
+                    raw = z.read(name).decode("utf-8", "replace")
+                    text = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+                    text = re.sub(r"\s{2,}", " ", text).strip()
+                    if text:
+                        parts.append(text)
+        else:
+            text = _fx.legacy_office_text(path)
+            if text.strip():
+                parts.append(text)
+        if parts:
+            return Txt(path, "\n".join(parts))
+    except Exception:
+        pass
+    return None
+
+
 def open_source(path):  # noqa: F811 — расширенный диспетчер
     p = str(path)
     ext = _P(p).suffix.lower()
     if ext == ".chm":
         return ChmAny(p)
-    if ext in (".doc", ".docm", ".dotx", ".ott"):
-        return OfficeDoc(p)
-    if ext in (".pptx", ".potx", ".ppsx", ".odp", ".otp"):
-        return Presentation(p)
-    if ext in (".ppt", ".pps"):
-        return OfficePresentation(p)
+    if ext in (".doc", ".docm", ".dotx", ".ott") or \
+            ext in (".pptx", ".potx", ".ppsx", ".odp", ".otp", ".ppt", ".pps") or \
+            ext in (".docx", ".odt"):
+        try:
+            if ext in (".doc", ".docm", ".dotx", ".ott"):
+                return OfficeDoc(p)
+            if ext in (".pptx", ".potx", ".ppsx", ".odp", ".otp"):
+                return Presentation(p)
+            if ext in (".ppt", ".pps"):
+                return OfficePresentation(p)
+            return _orig_open(p)
+        except Exception as exc:
+            src = _office_text_fallback(p)
+            if src is None:
+                raise exc
+            return src
     if ext in (".cbr", ".cb7", ".cbt", ".cbz"):
         return ComicAny(p)
     if ext == ".fb3":
