@@ -187,6 +187,22 @@ class TestOfficeFormats(unittest.TestCase):
         self.assertIn("Легаси", src.chapter(0).html)
         src.close()
 
+    def test_presentations_section_in_tree(self):
+        p = TMP / "tree_deck.pptx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("ppt/presentation.xml", "<p:presentation xmlns:p='http://schemas.openxmlformats.org/presentationml/2006/main'/>")
+        win = ui.Win()
+        try:
+            win.import_path(str(p))
+            texts = [win.tree.topLevelItem(i).text(0)
+                     for i in range(win.tree.topLevelItemCount())]
+            self.assertTrue(any("Презентации" in t for t in texts))
+            win.flt = dict(kind="presentations")
+            win.reload()
+            self.assertEqual(win.model.rowCount(), 1)
+        finally:
+            win.close()
+
     def test_presentation_extensions_registered(self):
         for ext in (".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"):
             self.assertIn(ext, formats.ALL_EXTS)

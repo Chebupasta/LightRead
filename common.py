@@ -207,6 +207,9 @@ ACCENTS = {
 }
 
 
+PRESENTATION_FMTS = ("pptx", "ppt", "pps", "ppsx", "potx", "odp", "otp")
+
+
 class Settings(dict):
     def __init__(self):
         super().__init__(DEFAULTS)
