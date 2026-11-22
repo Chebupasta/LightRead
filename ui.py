@@ -1,13 +1,13 @@
 """Библиотека: обложки, аккуратные карточки, сканер, диалоги."""
 import hashlib, json, os, subprocess, sys, zipfile
 from collections import OrderedDict
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from pathlib import Path
 from PySide6.QtCore import (Qt, QThread, Signal, QSize, QRectF, QUrl, QEvent, QTimer,
                             QFileSystemWatcher, QPropertyAnimation, QPoint)
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPainter, QPixmap,
                            QKeySequence, QStandardItem, QStandardItemModel, QShortcut, QIcon,
-                           QLinearGradient, QPen, QPainterPath)
+                           QLinearGradient, QPen, QPainterPath, QGuiApplication)
 from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QStyle, QTreeWidget,
                                QStyleOptionViewItem,
                                QTreeWidgetItem, QSplitter, QToolBar, QLineEdit, QComboBox, QWidget,
@@ -560,6 +560,122 @@ class SettingsDialog(QDialog):
         self.s[k] = v
         if self.live:
             self.live({k: v})
+
+
+class FilePropertiesDialog(QDialog):
+    """Свойства файла книги: путь, размер, даты и метаданные, как в Windows."""
+
+    def __init__(self, lib, bid, parent=None):
+        super().__init__(parent)
+        self.lib, self.bid = lib, bid
+        b = dict(lib.book(bid) or {})
+        self.setWindowTitle("Свойства файла")
+        self.setAccessibleName("Свойства файла")
+        g = self.screen().availableGeometry()
+        self.resize(min(620, int(g.width() * 0.85)), min(520, int(g.height() * 0.85)))
+
+        lay = QVBoxLayout(self)
+        tabs = QTabWidget()
+
+        path = b.get("path") or ""
+        p = Path(path)
+        st = None
+        if path:
+            try:
+                st = p.stat() if p.exists() else None
+            except OSError:
+                st = None
+
+        def stamp(ts):
+            if not ts:
+                return "—"
+            try:
+                return datetime.fromtimestamp(float(ts)).strftime("%d.%m.%Y %H:%M:%S")
+            except (ValueError, OSError, OverflowError):
+                return "—"
+
+        def row(form, label, value, selectable=False):
+            w = QLabel(str(value) if value not in (None, "") else "—")
+            w.setWordWrap(True)
+            if selectable:
+                w.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            form.addRow(label + ":", w)
+            return w
+
+        general = QWidget(); form = QFormLayout(general)
+        row(form, "Название", b.get("title"))
+        row(form, "Автор", b.get("author"))
+        row(form, "Формат", (b.get("fmt") or "").upper())
+        row(form, "Путь", path, True)
+        row(form, "Папка", str(p.parent) if path else "—", True)
+        row(form, "Имя файла", p.name if path else "—", True)
+        if st is None:
+            row(form, "Файл на диске", "Недоступен")
+        else:
+            row(form, "Размер на диске", human(st.st_size))
+            row(form, "Создан", stamp(st.st_ctime))
+            row(form, "Изменён", stamp(st.st_mtime))
+            row(form, "Последний доступ", stamp(st.st_atime))
+            try:
+                row(form, "Открыт для записи", "да" if os.access(path, os.W_OK) else "нет")
+            except OSError:
+                pass
+            try:
+                row(form, "Идентификатор", Scanner._fhash(p, st)[:16])
+            except OSError:
+                pass
+        row(form, "Размер в библиотеке", human(b.get("size") or 0))
+        row(form, "Добавлен в библиотеку", stamp(b.get("added")))
+        row(form, "Статус", b.get("status"))
+        row(form, "Прогресс", f"{(b.get('progress') or 0) * 100:.1f}%")
+        row(form, "Время чтения", hms(b.get("seconds") or 0))
+        tabs.addTab(general, "Общие")
+
+        meta_tab = QWidget(); meta_form = QFormLayout(meta_tab)
+        meta, _fmt = None, ""
+        if path and p.exists():
+            try:
+                meta, _fmt = read_meta(path)
+            except Exception:
+                meta = None
+        if meta:
+            row(meta_form, "Заголовок", meta.title)
+            row(meta_form, "Авторы", "; ".join(a for a in meta.authors if a))
+            row(meta_form, "Серия", meta.series)
+            row(meta_form, "Номер в серии", meta.seq or "")
+            row(meta_form, "Язык", meta.lang)
+            row(meta_form, "Жанры", "; ".join(meta.genres))
+            row(meta_form, "Аннотация", meta.annotation)
+        else:
+            row(meta_form, "Метаданные", "Не удалось прочитать")
+        tabs.addTab(meta_tab, "Метаданные")
+        lay.addWidget(tabs)
+
+        buttons = QHBoxLayout()
+        open_folder = QPushButton("Открыть папку")
+        open_folder.clicked.connect(self.open_folder)
+        copy_path = QPushButton("Копировать путь")
+        copy_path.clicked.connect(self.copy_path)
+        close = QPushButton("Закрыть")
+        close.clicked.connect(self.accept)
+        close.setDefault(True)
+        buttons.addWidget(open_folder); buttons.addWidget(copy_path); buttons.addStretch(1)
+        buttons.addWidget(close)
+        lay.addLayout(buttons)
+        self._path = path
+
+    def open_folder(self):
+        if self._path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self._path).parent)))
+
+    def copy_path(self):
+        if self._path:
+            QGuiApplication.clipboard().setText(self._path)
+            win = self.window()
+            if win is not None and hasattr(win, "notify"):
+                win.notify("Путь скопирован")
+            else:
+                pass
 
 
 class InfoDialog(QDialog):
@@ -1378,6 +1494,7 @@ class Win(QMainWindow):
         m.addAction("Сканировать", self.scan)
         m.addAction("Догрузить обложки", self.fetch_covers)
         m.addAction("Все заметки…", self.all_notes)
+        m.addAction("Свойства файла…", self.file_properties, QKeySequence("Alt+Enter"))
         if S.get("show_network"):
             m.addAction("OPDS-каталоги…", self.opds)
             m.addSeparator()
@@ -1459,6 +1576,8 @@ class Win(QMainWindow):
         find = QShortcut(QKeySequence("Ctrl+F"), self.library_page,
                          lambda: (self.book_tabs.setCurrentIndex(LIB_TAB), self.q.setFocus()))
         find.setContext(Qt.WidgetWithChildrenShortcut)
+        props = QShortcut(QKeySequence("Alt+Enter"), self.library_page, self.file_properties)
+        props.setContext(Qt.WidgetWithChildrenShortcut)
         self.book_tabs.currentChanged.connect(self.on_tab_changed)
         self.pb = QProgressBar(); self.pb.setMaximumWidth(220); self.pb.hide()
         self.statusBar().addPermanentWidget(self.pb)
@@ -1864,6 +1983,7 @@ class Win(QMainWindow):
             ("Сетка / Список", w.toggle_view),
             ("Настройки", w.settings),
             ("Статистика", w.stats),
+            ("Свойства файла…", w.file_properties),
             ("⌂ Главная", lambda: w.book_tabs.setCurrentIndex(HOME_TAB)),
             ("Библиотека", lambda: w.book_tabs.setCurrentIndex(LIB_TAB)),
         ):
@@ -1881,6 +2001,16 @@ class Win(QMainWindow):
             d.add(label, lambda bid=r["id"]: w.open_book(bid))
         d.fill("")
         d.exec()
+
+    def file_properties(self, bid=None):
+        if bid is None:
+            idx = self.list.currentIndex()
+            data = idx.data(ROLE) if idx.isValid() else None
+            if not data:
+                return
+            bid = data["id"]
+        if self.lib.book(bid):
+            FilePropertiesDialog(self.lib, bid, self).exec()
 
     def notify(self, text):
         if not hasattr(self, "toast"):
@@ -2043,6 +2173,7 @@ class Win(QMainWindow):
         else:
             m.addAction("Читать", lambda: self.open_book(bid))
             m.addAction("Информация…", lambda: (InfoDialog(self.lib, bid, self).exec(), self.reload()))
+            m.addAction("Свойства файла…", lambda: self.file_properties(bid))
         m.addSeparator()
         st = m.addMenu("Статус")
         for s, t in [("new", "Не начата"), ("reading", "Читаю"), ("read", "Прочитано"), ("planned", "Планирую")]:
@@ -2196,7 +2327,7 @@ class Win(QMainWindow):
     def hotkeys(self):
         QMessageBox.information(self, "Горячие клавиши", """
 <b>Главная</b>: Ctrl+1 главная · Ctrl+2 библиотека · Ctrl+K команды · Ctrl+Shift+T вернуть вкладку
-<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+D вид · F7 настройки · Ctrl+F поиск
+<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+D вид · F7 настройки · Ctrl+F поиск · Alt+Enter свойства файла
 <b>Чтение</b>: Space/PgDn вперёд · PgUp назад · Home/End начало/конец · Ctrl+←/→ глава
 F4 навигация · Ctrl+F поиск · Ctrl+B закладка · Ctrl+N заметки · Ctrl+T озвучка
 Ctrl+R автопрокрутка · F5 тема · F6 панель настройки · F11 полный экран · Ctrl+W закрыть
