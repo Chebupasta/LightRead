@@ -932,6 +932,10 @@ class Mobi(Parts):
 
 
 # ───────────────────────── DOCX / ODT / RTF / DOC / CHM / CBZ ─────────────────────────
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
 class Docx(Parts):
     def __init__(self, path):
         super().__init__()
@@ -951,6 +955,20 @@ class Docx(Parts):
                 elif t == "description": self.meta.annotation = xtext(e)
         except Exception:
             pass
+        styles = {}
+        try:
+            sroot = ET.fromstring(self.z.read("word/styles.xml"))
+            for st in sroot:
+                if ln(st.tag) != "style":
+                    continue
+                sid = st.get(W + "styleId")
+                if not sid:
+                    continue
+                styles[sid] = (next((c for c in st if ln(c.tag) == "rPr"), None),
+                               next((c for c in st if ln(c.tag) == "pPr"), None))
+        except Exception:
+            pass
+
         doc = ET.fromstring(self.z.read("word/document.xml"))
         body = next(e for e in doc if ln(e.tag) == "body")
         out, pos = [], 0
@@ -959,51 +977,138 @@ class Docx(Parts):
             nonlocal pos
             out.append(s); pos += txtlen + (1 if block else 0)
 
-        def run(r):
-            nonlocal pos
+        def rpr_tags(rpr):
+            tags, css = [], []
+            if rpr is None:
+                return "", ""
+            for c in rpr:
+                t, val = ln(c.tag), c.get(W + "val")
+                if t == "b" and val not in ("0", "false"):
+                    tags.append("b")
+                elif t == "i" and val not in ("0", "false"):
+                    tags.append("i")
+                elif t == "u" and val not in ("none", "0"):
+                    tags.append("u")
+                elif t == "strike" and val not in ("0", "false"):
+                    tags.append("s")
+                elif t == "vertAlign":
+                    if val == "superscript": tags.append("sup")
+                    elif val == "subscript": tags.append("sub")
+                elif t == "color" and val:
+                    css.append("color:#" + re.sub(r"[^0-9a-fA-F]", "", val)[:6])
+                elif t == "sz" and val:
+                    try:
+                        css.append(f"font-size:{int(val) / 2:.0f}pt")
+                    except ValueError:
+                        pass
+                elif t in ("highlight", "shd"):
+                    fill = re.sub(r"[^0-9a-fA-F]", "", val or c.get(W + "fill") or "")
+                    if fill:
+                        css.append("background-color:#" + fill[:6])
+            if css:
+                tags.insert(0, f'span style="{html.escape(";".join(css), True)}"')
+            return "".join(f"<{t}>" for t in tags), "".join(f"</{t}>" for t in reversed(tags))
+
+        def pstyle(ppr):
+            css = []
+            if ppr is None:
+                return ""
+            jc = next((c for c in ppr if ln(c.tag) == "jc"), None)
+            if jc is not None and jc.get(W + "val") in ("center", "right", "both"):
+                v = jc.get(W + "val")
+                css.append("text-align:" + ("justify" if v == "both" else v))
+            sp = next((c for c in ppr if ln(c.tag) == "spacing"), None)
+            if sp is not None:
+                for key, prop in (("before", "margin-top"), ("after", "margin-bottom")):
+                    val = sp.get(W + key)
+                    if val:
+                        try: css.append(f"{prop}:{int(val) / 20:.0f}pt")
+                        except ValueError: pass
+            ind = next((c for c in ppr if ln(c.tag) == "ind"), None)
+            if ind is not None and ind.get(W + "left"):
+                try: css.append(f"margin-left:{int(ind.get(W + 'left')) / 20:.0f}pt")
+                except ValueError: pass
+            return f' style="{html.escape(";".join(css), True)}"' if css else ""
+
+        def list_id(ppr):
+            if ppr is None:
+                return None
+            numpr = next((c for c in ppr if ln(c.tag) == "numPr"), None)
+            if numpr is None:
+                return None
+            num = next((c for c in numpr if ln(c.tag) == "numId"), None)
+            return num.get(W + "val") if num is not None else "0"
+
+        def run(r, extra_rpr=None):
             rpr = next((c for c in r if ln(c.tag) == "rPr"), None)
-            tags = []
-            if rpr is not None:
-                for c in rpr:
-                    t = ln(c.tag)
-                    if t == "b": tags.append("b")
-                    elif t == "i": tags.append("i")
-                    elif t == "u": tags.append("u")
-            for t in tags: emit(f"<{t}>")
+            base_open, base_close = rpr_tags(extra_rpr)
+            open_tags, close_tags = rpr_tags(rpr)
+            emit(base_open + open_tags)
+            extent = next((c for c in r.iter() if ln(c.tag) == "extent"), None)
+            iw = ih = 0
+            if extent is not None:
+                try:
+                    iw = max(1, round(int(extent.get("cx", 0)) / 9525))
+                    ih = max(1, round(int(extent.get("cy", 0)) / 9525))
+                except ValueError:
+                    pass
             for c in r.iter():
                 t = ln(c.tag)
                 if t == "t":
-                    s = c.text or ""; emit(html.escape(s), len(s))
-                elif t == "br": emit("<br/>", 1)
-                elif t == "tab": emit("    ", 4)
+                    s = c.text or ""
+                    emit(html.escape(s), len(s))
+                elif t == "br":
+                    emit("<br/><br/>" if c.get(W + "type") == "page" else "<br/>", 1)
+                elif t == "tab":
+                    emit("    ", 4)
                 elif t == "blip":
-                    rid = c.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+                    rid = c.get(REL + "embed")
                     tgt = rels.get(rid, "")
                     if tgt:
-                        emit(f'<img src="z:word/{posixpath.normpath(tgt)}"/>', 1)
-            for t in reversed(tags): emit(f"</{t}>")
+                        tgt = tgt.lstrip("/")
+                        zpath = posixpath.normpath(posixpath.join("word", tgt)) \
+                            if not tgt.startswith("word/") else tgt
+                        size = f' width="{iw}" height="{ih}"' if iw and ih else ""
+                        emit(f'<img src="z:{html.escape(zpath, True)}"{size}/>', 1)
+            emit(close_tags + base_close)
 
+        cur_list = None
         for el in body:
             t = ln(el.tag)
             if t == "p":
-                style = ""
                 ppr = next((c for c in el if ln(c.tag) == "pPr"), None)
+                style = ""
                 if ppr is not None:
                     ps = next((c for c in ppr if ln(c.tag) == "pStyle"), None)
-                    style = ps.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "") if ps is not None else ""
+                    style = ps.get(W + "val", "") if ps is not None else ""
                 lvl = 0
-                m = re.search(r"(?:Heading|Заголовок)\s*(\d)", style or "", re.I)
+                m = re.search(r"(?:Heading|Заголовок|Title|Название)\s*(\d)", style or "", re.I)
                 if m: lvl = min(6, int(m.group(1)))
-                tag = f"h{lvl}" if lvl else "p"
-                emit(f"<{tag}>")
+                elif style and re.search(r"(Title|Название)", style, re.I): lvl = 1
+                lid = list_id(ppr)
+                if lid != cur_list:
+                    if cur_list is not None: emit("</ul>")
+                    if lid is not None: emit("<ul>")
+                    cur_list = lid
+                style_rpr = styles.get(style, (None, None))[0]
+                tag = f"h{lvl}" if lvl else ("li" if lid is not None else "p")
+                emit(f"<{tag}{pstyle(ppr)}>")
                 for c in el:
-                    if ln(c.tag) == "r": run(c)
-                    elif ln(c.tag) in ("hyperlink", "ins", "smartTag"):
+                    if ln(c.tag) == "r":
+                        run(c, style_rpr)
+                    elif ln(c.tag) == "hyperlink":
+                        href = rels.get(c.get(REL + "id"), "")
+                        if href: emit(f'<a href="ext:{html.escape(href, True)}">')
                         for r in c:
-                            if ln(r.tag) == "r": run(r)
+                            if ln(r.tag) == "r": run(r, style_rpr)
+                        if href: emit("</a>")
+                    elif ln(c.tag) in ("ins", "smartTag", "sdt"):
+                        for r in c.iter():
+                            if ln(r.tag) == "r": run(r, style_rpr)
                 emit(f"</{tag}>", block=True)
             elif t == "tbl":
-                emit('<table border="0" cellpadding="4">')
+                if cur_list is not None: emit("</ul>"); cur_list = None
+                emit('<table border="0" cellpadding="4" cellspacing="0">')
                 for tr in el:
                     if ln(tr.tag) != "tr": continue
                     emit("<tr>")
@@ -1012,11 +1117,19 @@ class Docx(Parts):
                         emit("<td>")
                         for p in tc:
                             if ln(p.tag) == "p":
+                                pp = next((c for c in p if ln(c.tag) == "pPr"), None)
+                                st = ""
+                                if pp is not None:
+                                    ps = next((c for c in pp if ln(c.tag) == "pStyle"), None)
+                                    st = ps.get(W + "val", "") if ps is not None else ""
+                                srp = styles.get(st, (None, None))[0]
                                 for r in p:
-                                    if ln(r.tag) == "r": run(r)
+                                    if ln(r.tag) == "r": run(r, srp)
                         emit("</td>", block=True)
                     emit("</tr>")
                 emit("</table>")
+        if cur_list is not None:
+            emit("</ul>")
         h = "".join(out)
         self.parts, _ = split_html(h, {}, [], 180000)
         self.meta.title = self.meta.title or Path(path).stem
@@ -1445,22 +1558,54 @@ Pdf.text = _pdf_text
 Pdf.__init__ = _pdf_init(Pdf.__init__)
 
 
-def _first_page_cover(src, title=""):
-    """Обложка — отрендеренная первая страница документа, а не первая картинка в архиве."""
+def _render_pdf_cover(pdf_path):
+    """Снять PNG с первой страницы настоящего PDF."""
+    try:
+        from PySide6.QtCore import QSize, QByteArray, QBuffer, QIODevice
+        from PySide6.QtPdf import QPdfDocument
+        pdf = QPdfDocument()
+        if pdf.load(str(pdf_path)) != QPdfDocument.Error.None_ or not pdf.pageCount():
+            return b""
+        img = pdf.render(0, QSize(340, 480))
+        if img.isNull():
+            return b""
+        ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly)
+        img.save(buf, "PNG"); buf.close()
+        return bytes(ba)
+    except Exception:
+        return b""
+
+
+def _first_page_cover(src, path, title=""):
+    """Обложка = титульная/первая страница, а не первая попавшаяся картинка."""
     from common import CACHE
+    try:
+        stat = Path(path).stat()
+        key = hashlib.md5(f"{path}|{stat.st_mtime}|{stat.st_size}".encode()).hexdigest()[:16]
+        out = CACHE / ("cover_" + key)
+        real = _fx.office_to_pdf(path, out)
+        if real:
+            data = _render_pdf_cover(real)
+            if data:
+                return data
+    except Exception:
+        pass
+
+    # Fallback без внешних утилит: собираем титул из первого фрагмента текста.
     tmp = None
     try:
         from PySide6.QtCore import QSize, QByteArray, QBuffer, QIODevice
         from PySide6.QtGui import QTextDocument, QFont, QPageSize, QPdfWriter
-        from PySide6.QtPdf import QPdfDocument
 
         doc = QTextDocument()
-        doc.setDefaultFont(QFont("Sans", 11))
-        doc.setDefaultStyleSheet("body{color:#000000;} h1,h2,h3{color:#000000;}")
+        doc.setDefaultFont(QFont("Sans", 12))
+        doc.setDefaultStyleSheet(
+            "body{color:#000000;} h1,h2,h3{color:#000000;}"
+            "p{margin:0 0 6px 0;}")
         name = html.escape(title or src.meta.title or "")
-        doc.setHtml(f"<h1>{name}</h1>" + (src.chapter(0).html if src.count else ""))
+        doc.setHtml(f"<h1>{name}</h1>" + (src.chapter(0).html[:12000] if src.count else ""))
         doc.setPageSize(QSize(595, 842))
-        doc.setDocumentMargin(40)
+        doc.setDocumentMargin(48)
 
         ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly)
         writer = QPdfWriter(buf)
@@ -1472,15 +1617,7 @@ def _first_page_cover(src, title=""):
         data = bytes(ba)
         tmp = CACHE / f"_cover_{hashlib.md5(data).hexdigest()[:16]}.pdf"
         tmp.write_bytes(data)
-        pdf = QPdfDocument()
-        if pdf.load(str(tmp)) != QPdfDocument.Error.None_ or not pdf.pageCount():
-            return b""
-        img = pdf.render(0, QSize(340, 480))
-        if img.isNull():
-            return b""
-        out = QByteArray(); ob = QBuffer(out); ob.open(QIODevice.WriteOnly)
-        img.save(ob, "PNG"); ob.close()
-        return bytes(out)
+        return _render_pdf_cover(tmp)
     except Exception:
         return b""
     finally:
@@ -1495,16 +1632,7 @@ def _docx_cover(orig):
     def __init__(self, path):
         orig(self, path)
         if not self.meta.cover:
-            self.meta.cover = _first_page_cover(self)
-            if not self.meta.cover:
-                try:
-                    media = sorted(n for n in self.z.namelist()
-                                   if n.startswith("word/media/") and
-                                   n.lower().endswith((".png", ".jpg", ".jpeg")))
-                    if media:
-                        self.meta.cover = self.z.read(media[0])
-                except Exception:
-                    pass
+            self.meta.cover = _first_page_cover(self, path)
     return __init__
 
 
@@ -1515,16 +1643,7 @@ def _odt_cover(orig):
     def __init__(self, path):
         orig(self, path)
         if not self.meta.cover:
-            self.meta.cover = _first_page_cover(self)
-            if not self.meta.cover:
-                try:
-                    pics = sorted(n for n in self.z.namelist()
-                                  if n.startswith("Pictures/") and
-                                  n.lower().endswith((".png", ".jpg", ".jpeg")))
-                    if pics:
-                        self.meta.cover = self.z.read(pics[0])
-                except Exception:
-                    pass
+            self.meta.cover = _first_page_cover(self, path)
     return __init__
 
 
@@ -1534,6 +1653,152 @@ Odt.__init__ = _odt_cover(Odt.__init__)
 import re as _re
 from pathlib import Path as _P
 import formats_extra as _fx
+
+
+class Presentation(Parts):
+    """Слайд-шоу как последовательность глав: PPTX/POTX/PPSX и ODP/OTP."""
+    def __init__(self, path):
+        super().__init__()
+        ext = _P(path).suffix.lower()
+        self.z = zipfile.ZipFile(path)
+        try:
+            core = ET.fromstring(self.z.read("docProps/core.xml"))
+            for e in core:
+                t = ln(e.tag)
+                if t == "title": self.meta.title = xtext(e)
+                elif t == "creator": self.meta.authors = [xtext(e)]
+                elif t == "description": self.meta.annotation = xtext(e)
+        except Exception:
+            pass
+        if ext in (".odp", ".otp"):
+            self._odp()
+        else:
+            self._pptx()
+        self.meta.title = self.meta.title or _P(path).stem
+        self.finalize()
+
+    def _slide(self, number, title, blocks, images, notes=""):
+        html_parts = [f"<h1>{html.escape(title or f'Слайд {number}')}</h1>"]
+        html_parts += [f"<p>{html.escape(x)}</p>" for x in blocks if x.strip()]
+        html_parts += [f'<img src="z:{html.escape(x, True)}"/>' for x in images]
+        if notes.strip():
+            html_parts.append(f"<p><i>Заметки: {html.escape(notes.strip())}</i></p>")
+        self.parts.append((title[:90] or f"Слайд {number}", "".join(html_parts), {}))
+        self.toc.append((0, title[:90] or f"Слайд {number}", number - 1, ""))
+
+    def _pptx(self):
+        names = set(self.z.namelist())
+        rels = {}
+        try:
+            for r in ET.fromstring(self.z.read("ppt/_rels/presentation.xml.rels")):
+                rels[r.get("Id")] = r.get("Target", "")
+        except Exception:
+            pass
+        slides = []
+        try:
+            pres = ET.fromstring(self.z.read("ppt/presentation.xml"))
+            lst = next((e for e in pres.iter() if ln(e.tag) == "sldIdLst"), None)
+            if lst is not None:
+                for s in lst:
+                    target = rels.get(s.get(REL + "id"), "")
+                    if target:
+                        slides.append(posixpath.normpath(posixpath.join("ppt", target.lstrip("/"))))
+        except Exception:
+            pass
+        if not slides:
+            slides = sorted(n for n in names if re.match(r"ppt/slides/slide\d+\.xml$", n))
+        for i, slide in enumerate(slides, 1):
+            if slide not in names:
+                continue
+            root = ET.fromstring(self.z.read(slide))
+            srels = {}
+            relpath = posixpath.join(posixpath.dirname(slide), "_rels",
+                                     posixpath.basename(slide) + ".rels")
+            if relpath in names:
+                try:
+                    for r in ET.fromstring(self.z.read(relpath)):
+                        srels[r.get("Id")] = r.get("Target", "")
+                except Exception:
+                    pass
+            blocks = []
+            for p in root.iter():
+                if ln(p.tag) != "p":
+                    continue
+                text = "".join(t.text or "" for t in p.iter() if ln(t.tag) == "t").strip()
+                if text:
+                    blocks.append(text)
+            images = []
+            for blip in root.iter():
+                if ln(blip.tag) != "blip":
+                    continue
+                target = srels.get(blip.get(REL + "embed"), "")
+                if target:
+                    images.append(posixpath.normpath(
+                        posixpath.join(posixpath.dirname(slide), target.lstrip("/"))))
+            notes = ""
+            note_path = f"ppt/notesSlides/notesSlide{i}.xml"
+            if note_path in names:
+                try:
+                    nroot = ET.fromstring(self.z.read(note_path))
+                    notes = " ".join(t.text or "" for t in nroot.iter() if ln(t.tag) == "t")
+                except Exception:
+                    pass
+            self._slide(i, blocks[0] if blocks else f"Слайд {i}", blocks[1:], images, notes)
+
+    def _odp(self):
+        root = ET.fromstring(self.z.read("content.xml"))
+        draw = "{urn:oasis:names:tc:opendocument:xmlns:drawing:1.0}"
+        xlink = "{http://www.w3.org/1999/xlink}"
+        pages = [e for e in root.iter() if ln(e.tag) == "page"]
+        if not pages:
+            return
+        for i, page in enumerate(pages, 1):
+            title = page.get(draw + "name") or f"Слайд {i}"
+            blocks, images = [], []
+            for el in page.iter():
+                t = ln(el.tag)
+                if t in ("p", "h"):
+                    text = "".join(el.itertext()).strip()
+                    if text:
+                        blocks.append(text)
+                elif t == "image":
+                    href = el.get(xlink + "href", "")
+                    if href:
+                        images.append(href)
+            self._slide(i, title, blocks, images)
+
+    def resource(self, key):
+        if key.startswith("z:"):
+            try:
+                return self.z.read(key[2:])
+            except Exception:
+                return None
+
+    def close(self):
+        self.z.close()
+
+
+def _presentation_cover(orig):
+    def __init__(self, path):
+        orig(self, path)
+        if not self.meta.cover:
+            self.meta.cover = _first_page_cover(self, path)
+    return __init__
+
+
+Presentation.__init__ = _presentation_cover(Presentation.__init__)
+
+
+class OfficePresentation(Presentation):
+    """PPT/PPS: конвертируем в PPTX через LibreOffice и читаем как обычный PPTX."""
+    def __init__(self, path):
+        key = _re.sub(r"\W", "_", _P(path).stem)[:40] + f"_{int(_P(path).stat().st_mtime)}"
+        out = CACHE / ("conv_ppt_" + key)
+        pptx = _fx.office_to_pptx(path, out)
+        if not pptx:
+            raise FormatError("PPT/PPS: нужен LibreOffice (или пересохраните файл в .pptx)")
+        super().__init__(pptx)
+        self.meta.title = self.meta.title or _P(path).stem
 
 
 class ChmAny(Parts):
@@ -1759,6 +2024,10 @@ def open_source(path):  # noqa: F811 — расширенный диспетче
         return ChmAny(p)
     if ext in (".doc", ".docm", ".dotx", ".ott"):
         return OfficeDoc(p)
+    if ext in (".pptx", ".potx", ".ppsx", ".odp", ".otp"):
+        return Presentation(p)
+    if ext in (".ppt", ".pps"):
+        return OfficePresentation(p)
     if ext in (".cbr", ".cb7", ".cbt", ".cbz"):
         return ComicAny(p)
     if ext == ".fb3":
@@ -1794,7 +2063,8 @@ def _archive_source(path):
     if not (dest.is_dir() and any(dest.rglob("*"))):
         if not _fx.extract_archive(path, dest):
             raise FormatError("Архив: нужен 7-Zip (или UnRAR)")
-    prio = (".fb2", ".epub", ".pdf", ".txt", ".docx", ".html", ".djvu", ".mobi", ".rtf", ".odt")
+    prio = (".fb2", ".epub", ".pdf", ".txt", ".docx", ".html", ".djvu", ".mobi", ".rtf",
+            ".odt", ".pptx", ".odp", ".ppt")
     files = [p for p in dest.rglob("*") if p.is_file() and p.suffix.lower() in _BASE_EXTS]
     if not files:
         raise FormatError("В архиве не найдено книг")

@@ -18,7 +18,7 @@ LightRead — кроссплатформенная читалка электро
 
 ## Поддерживаемые форматы
 
-`azw`, `azw3`, `cb7`, `cbr`, `cbt`, `cbz`, `chm`, `djv`, `djvu`, `doc`, `docm`, `docx`, `dotx`, `epub`, `fb2`, `fb3`, `fbz`, `htm`, `html`, `log`, `md`, `mobi`, `odt`, `ott`, `pdb`, `pdf`, `prc`, `rar`, `rtf`, `text`, `txt`, `xhtml`, `zip`.
+`azw`, `azw3`, `cb7`, `cbr`, `cbt`, `cbz`, `chm`, `djv`, `djvu`, `doc`, `docm`, `docx`, `dotx`, `epub`, `fb2`, `fb3`, `fbz`, `htm`, `html`, `log`, `md`, `mobi`, `odp`, `odt`, `otp`, `ott`, `pdb`, `pdf`, `pps`, `ppsx`, `ppt`, `pptx`, `potx`, `prc`, `rar`, `rtf`, `text`, `txt`, `xhtml`, `zip`.
 
 Для некоторых форматов нужны внешние утилиты:
 
@@ -28,6 +28,8 @@ LightRead — кроссплатформенная читалка электро
 | DOC | `antiword`, `catdoc` или LibreOffice |
 | CHM | `7z` / `7za` (на Windows — `hh.exe`) |
 | CBR/CB7/CBT, RAR | `7z` / UnRAR |
+| PPT/PPS (legacy) | LibreOffice (`soffice`) |
+| Точная обложка DOCX/ODT/PPTX/ODP | LibreOffice или Word (иначе используется встроенный рендер титула) |
 | AZW3 / HUFF-CDIC | опциональный пакет Python `mobi` |
 
 ## Быстрый старт

@@ -135,6 +135,68 @@ def office_to_docx(path, outdir):
     return _word_convert(path, out)
 
 
+def _word_convert_pdf(path, out):
+    try:
+        import win32com.client as wc
+    except Exception:
+        return None
+    app = None
+    try:
+        app = wc.DispatchEx("Word.Application")
+        app.Visible = False
+        app.DisplayAlerts = 0
+        doc = app.Documents.Open(str(Path(path).resolve()), ReadOnly=True)
+        doc.ExportAsFixedFormat(str(out), 17)
+        doc.Close(False)
+        return str(out) if Path(out).is_file() else None
+    except Exception:
+        return None
+    finally:
+        try:
+            if app:
+                app.Quit()
+        except Exception:
+            pass
+
+
+def office_to_pdf(path, outdir):
+    """Настоящий PDF из офисного документа — для точной обложки по первой странице."""
+    outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
+    out = outdir / (Path(path).stem + ".pdf")
+    if out.is_file():
+        return str(out)
+    exe = soffice_exe()
+    if exe:
+        try:
+            subprocess.run([exe, "--headless", "--norestore", "--convert-to", "pdf",
+                            "--outdir", str(outdir), str(path)],
+                           capture_output=True, timeout=240)
+        except Exception:
+            pass
+        if out.is_file():
+            return str(out)
+    return _word_convert_pdf(path, out)
+
+
+def office_to_pptx(path, outdir):
+    """Конвертация legacy .ppt/.pps в PPTX через LibreOffice."""
+    outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
+    out = outdir / (Path(path).stem + ".pptx")
+    if out.is_file():
+        return str(out)
+    exe = soffice_exe()
+    if exe:
+        try:
+            subprocess.run([exe, "--headless", "--norestore", "--convert-to", "pptx",
+                            "--outdir", str(outdir), str(path)],
+                           capture_output=True, timeout=240)
+        except Exception:
+            pass
+        if out.is_file():
+            return str(out)
+    return None
+
+
 def office_to_text(path):
     exe = antiword_exe()
     if exe:
@@ -161,7 +223,8 @@ def office_to_text(path):
     return None
 
 
-EXTRA_EXTS = {".cbr", ".cb7", ".cbt", ".fb3", ".docm", ".dotx", ".ott", ".pdb", ".rar"}
+EXTRA_EXTS = {".cbr", ".cb7", ".cbt", ".fb3", ".docm", ".dotx", ".ott", ".pdb", ".rar",
+              ".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"}
 
 
 def report():
@@ -181,6 +244,9 @@ def report():
         ("CHM", bool(hh or sz), "Windows: hh.exe встроен" if hh else "нужен 7-Zip"),
         ("DOC (legacy)", bool(so or aw or has_word()),
          "LibreOffice / Word / antiword"),
+        ("PPTX / POTX / PPSX", True, "встроенный парсер"),
+        ("ODP / OTP", True, "встроенный парсер"),
+        ("PPT / PPS (legacy)", bool(so), "нужен LibreOffice"),
         ("DJVU", bool(dj), "нужен DjVuLibre (ddjvu)"),
         ("CBR / CB7 / CBT", bool(sz), "нужен 7-Zip"),
     ]

@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -83,6 +84,96 @@ class TestMarkdown(unittest.TestCase):
         with settings(hyphenate=False):
             html = formats.text_to_html("Programming extraordinarily complicated sentence")
             self.assertNotIn("\u00ad", html)
+
+
+class TestOfficeFormats(unittest.TestCase):
+    def test_docx_keeps_formatting(self):
+        p = TMP / "format.docx"
+        document = '''<?xml version="1.0"?><w:document
+ xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:jc w:val="center"/></w:pPr>
+ <w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>Заголовок</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr>
+ <w:r><w:rPr><w:i/></w:rPr><w:t>Курсивный пункт</w:t></w:r></w:p>
+</w:body></w:document>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("word/document.xml", document)
+            z.writestr("word/_rels/document.xml.rels",
+                       "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'/>")
+            z.writestr("word/styles.xml",
+                       "<w:styles xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'/>")
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("<h1", html)
+        self.assertIn("<b>", html)
+        self.assertIn("<i>", html)
+        self.assertIn("text-align:center", html)
+        self.assertIn("<ul>", html)
+        src.close()
+
+    def test_docx_cover_is_not_first_image(self):
+        p = TMP / "cover.docx"
+        image = b"\x89PNG\r\n\x1a\nFAKE"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("word/document.xml", '''<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>Титульная страница</w:t></w:r></w:p></w:body></w:document>''')
+            z.writestr("word/media/image1.png", image)
+        src = formats.open_source(str(p))
+        self.assertNotEqual(src.meta.cover, image)
+        src.close()
+
+    def test_pptx_parse(self):
+        p = TMP / "deck.pptx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("docProps/core.xml", '''<?xml version="1.0"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Презентация</dc:title></cp:coreProperties>''')
+            z.writestr("ppt/presentation.xml", '''<?xml version="1.0"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<p:sldIdLst><p:sldId r:id="rId1"/></p:sldIdLst></p:presentation>''')
+            z.writestr("ppt/_rels/presentation.xml.rels", '''<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Target="slides/slide1.xml"/></Relationships>''')
+            z.writestr("ppt/slides/slide1.xml", '''<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+<p:sp><p:txBody><a:p><a:r><a:t>Слайд один</a:t></a:r></a:p>
+<a:p><a:r><a:t>Пункт презентации</a:t></a:r></a:p></p:txBody></p:sp>
+</p:spTree></p:cSld></p:sld>''')
+        src = formats.open_source(str(p))
+        self.assertEqual(src.meta.title, "Презентация")
+        self.assertEqual(src.count, 1)
+        html = src.chapter(0).html
+        self.assertIn("Слайд один", html)
+        self.assertIn("Пункт презентации", html)
+        src.close()
+        self.assertEqual(formats.read_meta(str(p))[1], "pptx")
+
+    def test_odp_parse(self):
+        p = TMP / "deck.odp"
+        content = '''<?xml version="1.0"?><office:document-content
+ xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+<office:body><office:presentation>
+<draw:page draw:name="Титул"><text:p>Заголовок ODP</text:p><text:p>Подзаголовок</text:p></draw:page>
+<draw:page draw:name="Второй"><text:p>Второй слайд</text:p></draw:page>
+</office:presentation></office:body></office:document-content>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("content.xml", content)
+        src = formats.open_source(str(p))
+        self.assertEqual(src.count, 2)
+        self.assertIn("Заголовок ODP", src.chapter(0).html)
+        self.assertIn("Второй слайд", src.chapter(1).html)
+        src.close()
+        self.assertEqual(formats.read_meta(str(p))[1], "odp")
+
+    def test_presentation_extensions_registered(self):
+        for ext in (".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"):
+            self.assertIn(ext, formats.ALL_EXTS)
 
 
 def _contrast(a, b):

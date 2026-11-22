@@ -31,7 +31,8 @@ _SESSION_RESTORED = False
 GROUP_COLORS = ("#5e6ad2", "#3fb950", "#d29922", "#f85149", "#a371f7", "#58a6ff")
 HOME_TAB, LIB_TAB = 0, 1
 FMT_COLOR = {k: SEMANTIC["dark"]["data." + k] for k in
-             ("pdf", "epub", "fb2", "djvu", "docx", "mobi", "azw3", "txt")}
+             ("pdf", "epub", "fb2", "djvu", "docx", "mobi", "azw3", "txt",
+              "pptx", "odp", "ppt", "pps", "ppsx", "otp")}
 
 
 def save_cover(bid, data):
@@ -1188,7 +1189,8 @@ class SmartDialog(QDialog):
                             ("read", "Прочитано"), ("planned", "Планирую")):
             self.f_status.addItem(text, value)
         self.f_fmt = QComboBox(); self.f_fmt.addItem("Любой", "")
-        for f in ("pdf", "epub", "fb2", "djvu", "docx", "txt", "mobi", "azw3"):
+        for f in ("pdf", "epub", "fb2", "djvu", "docx", "txt", "mobi", "azw3",
+                  "pptx", "odp", "ppt", "pps", "ppsx", "otp"):
             self.f_fmt.addItem(f.upper(), f)
         self.f_tag = QComboBox(); self.f_tag.addItem("Любая", 0)
         for t in lib.tags():
