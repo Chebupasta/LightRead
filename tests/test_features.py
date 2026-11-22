@@ -85,6 +85,31 @@ class TestMarkdown(unittest.TestCase):
             self.assertNotIn("\u00ad", html)
 
 
+def _contrast(a, b):
+    def lum(value):
+        value = value.lstrip("#")
+        rgb = [int(value[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        lin = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in rgb]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+class TestPalette(unittest.TestCase):
+    def test_surface_roles_are_distinct_and_readable(self):
+        for name in common.THEMES:
+            c = theming.chrome(common.theme(name))
+            surfaces = [c[k] for k in ("bg.canvas", "bg.overlay", "bg.field", "bg.panel",
+                                       "bg.subtle", "bg.raised", "bg.hover", "bg.selected", "bg.active")]
+            self.assertGreaterEqual(len(set(surfaces)), 8, name)
+            self.assertNotEqual(c["border.subtle"], c["bg.selected"], name)
+            self.assertNotEqual(c["border.strong"], c["bg.active"], name)
+            self.assertNotEqual(c["accent.subtle"], c["bg.hover"], name)
+            self.assertGreaterEqual(_contrast(c["text.primary"], c["bg.canvas"]), 4.5, name)
+            self.assertGreaterEqual(_contrast(c["text.secondary"], c["bg.panel"]), 4.0, name)
+            self.assertGreaterEqual(_contrast(c["text.tertiary"], c["bg.raised"]), 3.0, name)
+
+
 class TestLocalReliability(unittest.TestCase):
     def test_corrupt_db_is_recovered(self):
         db = TMP / "corrupt.db"
