@@ -1280,11 +1280,30 @@ class Rtf(Txt):
 
 class Doc(Txt):
     def __init__(self, path):
+        raw = Path(path).read_bytes()
+        if raw[:2] == b"PK":
+            # Файл с расширением .doc, но внутри обычный OOXML.
+            src = Docx(path)
+            self.parts, self.meta, self.toc, self.count = src.parts, src.meta, src.toc, src.count
+            self.resource = src.resource
+            return
+        if raw.lstrip().startswith(b"{\\rtf"):
+            super().__init__(path, rtf_to_text(raw))
+            return
+
+        txt = ""
         exe = shutil.which("antiword") or shutil.which("catdoc")
-        if not exe:
-            raise FormatError("Для .DOC нужен antiword или catdoc (либо пересохраните в .docx)")
-        args = [exe, "-w", "0", path] if exe.endswith("antiword") else [exe, path]
-        txt = subprocess.run(args, capture_output=True, timeout=60).stdout.decode("utf-8", "replace")
+        if exe:
+            try:
+                args = [exe, "-w", "0", path] if "antiword" in exe.lower() else [exe, path]
+                txt = subprocess.run(args, capture_output=True, timeout=60).stdout.decode("utf-8", "replace")
+            except Exception:
+                txt = ""
+        if not txt.strip():
+            txt = _fx.legacy_office_text(path)
+        if not txt.strip():
+            raise FormatError("DOC: не удалось извлечь текст. Установите LibreOffice/antiword "
+                              "или пересохраните файл в .docx")
         super().__init__(path, txt)
 
 
@@ -1790,15 +1809,33 @@ Presentation.__init__ = _presentation_cover(Presentation.__init__)
 
 
 class OfficePresentation(Presentation):
-    """PPT/PPS: конвертируем в PPTX через LibreOffice и читаем как обычный PPTX."""
+    """PPT/PPS: PPTX через LibreOffice, иначе встроенный текстовый fallback."""
     def __init__(self, path):
+        raw = _P(path).read_bytes()
+        if raw[:2] == b"PK":
+            super().__init__(path)
+            self.meta.title = self.meta.title or _P(path).stem
+            return
         key = _re.sub(r"\W", "_", _P(path).stem)[:40] + f"_{int(_P(path).stat().st_mtime)}"
         out = CACHE / ("conv_ppt_" + key)
         pptx = _fx.office_to_pptx(path, out)
-        if not pptx:
-            raise FormatError("PPT/PPS: нужен LibreOffice (или пересохраните файл в .pptx)")
-        super().__init__(pptx)
+        if pptx:
+            super().__init__(pptx)
+            self.meta.title = self.meta.title or _P(path).stem
+            return
+
+        text = _fx.legacy_office_text(path)
+        if not text.strip():
+            raise FormatError("PPT/PPS: не удалось извлечь текст. Установите LibreOffice "
+                              "или пересохраните файл в .pptx")
+        Parts.__init__(self)
+        t = Txt(path, text)
+        self.parts, self.toc, self.count = t.parts, t.toc, t.count
         self.meta.title = self.meta.title or _P(path).stem
+
+    def close(self):
+        if hasattr(self, "z"):
+            self.z.close()
 
 
 class ChmAny(Parts):
@@ -1844,6 +1881,25 @@ class ChmAny(Parts):
 class OfficeDoc(Parts):
     def __init__(self, path):
         super().__init__()
+        raw = _P(path).read_bytes()
+        if raw[:2] == b"PK":
+            try:
+                with zipfile.ZipFile(path) as z:
+                    names = z.namelist()
+                if "word/document.xml" in names:
+                    src = Docx(path)
+                    self.parts, self.meta, self.toc, self.count = src.parts, src.meta, src.toc, src.count
+                    self.resource = src.resource
+                    self.meta.title = self.meta.title or _P(path).stem
+                    return
+                if "content.xml" in names:
+                    src = Odt(path)
+                    self.parts, self.meta, self.toc, self.count = src.parts, src.meta, src.toc, src.count
+                    self.resource = src.resource
+                    self.meta.title = self.meta.title or _P(path).stem
+                    return
+            except Exception:
+                pass
         key = _re.sub(r"\W", "_", _P(path).stem)[:40] + f"_{int(_P(path).stat().st_mtime)}"
         out = CACHE / ("conv_" + key)
         docx = _fx.office_to_docx(path, out)
@@ -1854,11 +1910,14 @@ class OfficeDoc(Parts):
             self.meta.title = self.meta.title or _P(path).stem
             return
         txt = _fx.office_to_text(path)
-        if txt is None:
-            raise FormatError("DOC: установите LibreOffice или antiword "
-                              "(либо пересохраните файл в .docx)")
+        if not txt or not txt.strip():
+            txt = _fx.legacy_office_text(path)
+        if not txt or not txt.strip():
+            raise FormatError("DOC: не удалось извлечь текст. Установите LibreOffice/antiword "
+                              "или пересохраните файл в .docx")
         t = Txt(path, txt)
         self.parts, self.meta, self.toc, self.count = t.parts, t.meta, t.toc, t.count
+        self.meta.title = self.meta.title or _P(path).stem
 
 
 class ComicAny(Parts):

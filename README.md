@@ -28,7 +28,8 @@ LightRead — кроссплатформенная читалка электро
 | DOC | `antiword`, `catdoc` или LibreOffice |
 | CHM | `7z` / `7za` (на Windows — `hh.exe`) |
 | CBR/CB7/CBT, RAR | `7z` / UnRAR |
-| PPT/PPS (legacy) | LibreOffice (`soffice`) |
+| PPT/PPS (legacy) | LibreOffice для точного рендера; без него — встроенный текстовый fallback |
+| DOC (legacy) | LibreOffice/antiword для точного текста; без них — встроенный текстовый fallback |
 | Точная обложка DOCX/ODT/PPTX/ODP | LibreOffice или Word (иначе используется встроенный рендер титула) |
 | AZW3 / HUFF-CDIC | опциональный пакет Python `mobi` |
 

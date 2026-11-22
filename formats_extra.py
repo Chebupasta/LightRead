@@ -227,6 +227,29 @@ EXTRA_EXTS = {".cbr", ".cb7", ".cbt", ".fb3", ".docm", ".dotx", ".ott", ".pdb", 
               ".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"}
 
 
+def legacy_office_text(path):
+    """Грубый, но беззависимый текст из бинарных DOC/PPT: ищем строки в байтах."""
+    data = Path(path).read_bytes()
+    best = []
+    for enc in ("utf-16le", "cp1251", "cp1252"):
+        try:
+            text = data.decode(enc, "ignore")
+        except Exception:
+            continue
+        chunks = []
+        for m in re.finditer(r"[^\x00-\x1f\x7f]{4,}", text):
+            s = m.group(0).strip()
+            letters = sum(ch.isalpha() for ch in s)
+            if letters < max(2, len(s) // 3):
+                continue
+            if s.lower().startswith(("microsoft", "ms word", "powerpoint", "ole10native")):
+                continue
+            chunks.append(s)
+        if sum(len(x) for x in chunks) > sum(len(x) for x in best):
+            best = chunks
+    return "\n".join(best)
+
+
 def report():
     sz, hh, so, aw, dj = seven_zip(), hh_exe(), soffice_exe(), antiword_exe(), ddjvu_exe()
     rows = [
