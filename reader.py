@@ -349,6 +349,7 @@ class Reader(QMainWindow):
         m.addAction("Таймер сна: выкл", lambda: self._sleep.stop())
         m.addSeparator()
         m.addAction("Информация о книге", self.info)
+        m.addAction("Свойства файла…", self.file_properties, QKeySequence("Alt+Enter"))
 
         self.dock = QDockWidget("Навигация", self)
         self.tabs = QTabWidget()
@@ -1132,6 +1133,13 @@ class Reader(QMainWindow):
             self.showNormal(); self.a_full.setChecked(False)
         else:
             self.showFullScreen(); self.a_full.setChecked(True)
+
+    def file_properties(self):
+        win = self.window()
+        if win is not self and hasattr(win, "file_properties"):
+            win.file_properties(self.bid)
+        else:
+            self.info()
 
     def notify(self, text):
         win = self.window()

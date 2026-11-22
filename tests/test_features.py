@@ -14,7 +14,7 @@ os.environ["APPDATA"] = str(TMP)
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtGui import QPainter, QPixmap
-from PySide6.QtWidgets import QApplication, QMessageBox, QTabBar, QStyleOptionViewItem
+from PySide6.QtWidgets import QApplication, QMessageBox, QTabBar, QStyleOptionViewItem, QLabel
 
 app = QApplication.instance() or QApplication([])
 QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
@@ -184,6 +184,30 @@ def _contrast(a, b):
         return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
     hi, lo = sorted((lum(a), lum(b)), reverse=True)
     return (hi + 0.05) / (lo + 0.05)
+
+
+class TestFileProperties(unittest.TestCase):
+    def test_properties_show_path_size_and_dates(self):
+        db = TMP / f"props_{self.id()}.db"
+        lib = libmod.Library(path=str(db))
+        try:
+            p = make_book(TMP / f"props_{self.id()}.fb2", "Книга свойств")
+            bid = lib.upsert(dict(path=str(p), fmt="fb2", title="Книга свойств", author="A",
+                                  series="", seq=0, lang="ru", annotation="", genres="",
+                                  size=p.stat().st_size, mtime=p.stat().st_mtime))
+            dlg = ui.FilePropertiesDialog(lib, bid)
+            texts = [w.text() for w in dlg.findChildren(QLabel)]
+            joined = "\n".join(texts)
+            self.assertIn(common.norm(str(p)).lower(), joined.lower())
+            self.assertIn(p.name.lower(), joined.lower())
+            self.assertIn("FB2", joined)
+            self.assertIn("Размер на диске", joined)
+            self.assertIn("Изменён", joined)
+            tabs = dlg.findChild(ui.QTabWidget)
+            self.assertIsNotNone(tabs)
+            self.assertIn("Метаданные", [tabs.tabText(i) for i in range(tabs.count())])
+        finally:
+            lib.c.close()
 
 
 class TestPalette(unittest.TestCase):
