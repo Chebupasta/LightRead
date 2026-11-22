@@ -286,8 +286,8 @@ class BookDelegate(QStyledItemDelegate):
         c = self._c
         col = self._fmt_color(b["fmt"])
         g = QLinearGradient(box.topLeft(), box.bottomRight())
-        g.setColorAt(0.0, QColor(c["bg.subtle"]))
-        g.setColorAt(1.0, QColor(c["bg.canvas"]))
+        g.setColorAt(0.0, QColor(c["bg.raised"]))
+        g.setColorAt(1.0, QColor(c["bg.panel"]))
         p.setPen(Qt.NoPen)
         p.fillPath(self._round(box), g)
         tint = QColor(col); tint.setAlpha(16 if self._dark else 10)
@@ -298,7 +298,7 @@ class BookDelegate(QStyledItemDelegate):
         p.setBrush(spine)
         p.drawRoundedRect(QRectF(box.x(), box.y(), 5, box.height()), 2, 2)
         p.setBrush(Qt.NoBrush)  # иначе контур закрасит обложку ещё раз
-        p.setPen(QPen(QColor(c["border.subtle"]), 1))
+        p.setPen(QPen(QColor(c["border.strong"]), 1))
         p.drawLine(box.x() + 14, box.y() + 52, box.right() - 14, box.y() + 52)
         p.drawPath(self._round(box))
         title = QColor(c["text.primary"]); title.setAlpha(235)
@@ -329,7 +329,7 @@ class BookDelegate(QStyledItemDelegate):
             p.drawPixmap(QRectF(x, y, s.width(), s.height()), s, QRectF(s.rect()))
             p.setClipping(False)
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(self._c["border.subtle"]), 1))
+        p.setPen(QPen(QColor(self._c["border.strong"]), 1))
         p.drawRoundedRect(box, 4, 4)
 
     def paint(self, p, opt, idx):

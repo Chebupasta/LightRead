@@ -21,14 +21,14 @@ QWidget {
 QMainWindow, QDialog { background: %(bg.canvas)s; }
 QFrame { border-radius: %(radius.sm)s; }
 QToolTip {
-  background: %(bg.panel)s; color: %(text.primary)s;
+  background: %(bg.raised)s; color: %(text.primary)s;
   border: 1px solid %(border.strong)s; border-radius: %(radius.sm)s;
   padding: 6px 9px;
 }
 
 /* ── Меню ─────────────────────────────────────────────────────────── */
 QMenuBar {
-  background: %(bg.canvas)s; padding: 2px %(space.sm)s;
+  background: %(bg.panel)s; padding: 2px %(space.sm)s;
   border-bottom: 1px solid %(border.subtle)s;
 }
 QMenuBar::item {
@@ -37,7 +37,7 @@ QMenuBar::item {
 }
 QMenuBar::item:selected { background: %(bg.hover)s; color: %(text.primary)s; }
 QMenu {
-  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.md)s; padding: 4px;
 }
 QMenu::item {
@@ -48,7 +48,7 @@ QMenu::separator { height: 1px; background: %(border.subtle)s; margin: 4px 6px; 
 
 /* ── Панели инструментов ──────────────────────────────────────────── */
 QToolBar {
-  background: %(bg.canvas)s; border: 0; border-bottom: 1px solid %(border.subtle)s;
+  background: %(bg.panel)s; border: 0; border-bottom: 1px solid %(border.subtle)s;
   padding: 4px %(space.md)s; spacing: 2px;
 }
 QToolButton {
@@ -64,7 +64,7 @@ QToolBar::separator { width: 1px; background: %(border.subtle)s; margin: 4px 6px
 
 /* ── Статус-бар ───────────────────────────────────────────────────── */
 QStatusBar {
-  background: %(bg.canvas)s; border-top: 1px solid %(border.subtle)s;
+  background: %(bg.panel)s; border-top: 1px solid %(border.subtle)s;
   color: %(text.tertiary)s;
 }
 QStatusBar QLabel {
@@ -78,7 +78,7 @@ QStatusBar QSlider { max-height: 14px; border-radius: %(radius.sm)s; }
 /* ── Док-панель и вкладки ─────────────────────────────────────────── */
 QDockWidget { color: %(text.secondary)s; border-radius: %(radius.md)s; }
 QDockWidget::title {
-  background: %(bg.canvas)s; padding: 6px 10px;
+  background: %(bg.panel)s; padding: 6px 10px;
   border-bottom: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
   font-size: %(font.sm)s;
@@ -90,13 +90,13 @@ QTabBar::tab {
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
 }
 QTabBar::tab:selected {
-  color: %(text.primary)s; border-bottom: 2px solid %(accent.default)s; background: transparent;
+  color: %(text.primary)s; border-bottom: 2px solid %(accent.default)s; background: %(bg.panel)s;
 }
 QTabBar::tab:hover:!selected { color: %(text.primary)s; background: %(bg.hover)s; }
 
 /* ── Поля ввода ───────────────────────────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextBrowser, QFontComboBox {
-  background: %(bg.field)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.field)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.sm)s; padding: 5px 8px; color: %(text.primary)s;
   selection-background-color: %(accent.subtle)s; selection-color: %(text.primary)s;
 }
@@ -104,7 +104,7 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QComboBox:focus, QTextBrowser:focus { border-color: %(border.focus)s; }
 QComboBox::drop-down { border: 0; width: 16px; }
 QComboBox QAbstractItemView {
-  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.sm)s; padding: 4px;
   selection-background-color: %(bg.hover)s; selection-color: %(text.primary)s;
 }
@@ -115,11 +115,11 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
 
 /* ── Кнопки и переключатели ───────────────────────────────────────── */
 QPushButton {
-  background: %(bg.field)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.sm)s; padding: 6px 12px; color: %(text.primary)s;
 }
-QPushButton:hover { background: %(bg.hover)s; border-color: %(border.strong)s; }
-QPushButton:pressed { background: %(bg.selected)s; }
+QPushButton:hover { background: %(bg.hover)s; border-color: %(accent.default)s; }
+QPushButton:pressed { background: %(bg.active)s; }
 QPushButton:default {
   background: %(accent.default)s; color: %(text.on_accent)s; border-color: %(accent.default)s;
   font-weight: %(font.weight.medium)s;
@@ -139,7 +139,7 @@ QRadioButton::indicator { border-radius: 7px; }
 /* ── Списки и деревья ─────────────────────────────────────────────── */
 QTreeWidget, QListView, QListWidget {
   background: %(bg.canvas)s; border: 0; padding: 4px;
-  alternate-background-color: %(bg.panel)s;
+  alternate-background-color: %(bg.raised)s;
 }
 QTreeWidget::item, QListWidget::item { padding: 5px 8px; border-radius: %(radius.sm)s; }
 QTreeWidget::item:hover, QListWidget::item:hover { background: %(bg.hover)s; }
@@ -147,7 +147,7 @@ QTreeWidget::item:selected, QListWidget::item:selected, QListView::item:selected
   background: %(bg.selected)s; color: %(text.primary)s;
 }
 QHeaderView::section {
-  background: %(bg.canvas)s; border: 0; padding: 5px;
+  background: %(bg.panel)s; border: 0; padding: 5px;
   color: %(text.tertiary)s; border-radius: %(radius.xs)s;
 }
 
@@ -193,19 +193,20 @@ QWidget#TuneBar QPushButton { padding: 5px 10px; border-radius: %(radius.sm)s; }
 QLabel#VSep { background: %(border.subtle)s; max-width: 1px; min-width: 1px; margin: 2px 1px; }
 QLabel#Chip {
   background: %(bg.subtle)s; color: %(text.secondary)s;
+  border: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s; padding: 2px 7px; font-size: %(font.sm)s;
 }
 QLabel#EmptyState { background: transparent; color: %(text.tertiary)s; font-size: %(font.xl)s; }
 
 QFrame#Toast {
-  background: %(bg.panel)s; border: 1px solid %(border.strong)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.sm)s;
 }
 QFrame#Toast QLabel { color: %(text.primary)s; font-size: %(font.md)s; }
 
 /* Продолжить чтение */
 QFrame#ContinueBar {
-  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-left: 2px solid %(accent.default)s; border-radius: %(radius.sm)s;
 }
 QLabel#ContinueLabel { color: %(text.primary)s; font-size: %(font.lg)s; }
@@ -226,26 +227,27 @@ QLabel#SectionTitle {
 }
 QLabel#HomeSubtle { color: %(text.tertiary)s; font-size: %(font.sm)s; }
 QFrame#ContinueCard {
-  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-left: 2px solid %(accent.default)s; border-radius: %(radius.md)s;
 }
 QFrame#GoalCard {
-  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s;
 }
 QPushButton#RecentCard {
-  background: %(bg.field)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s; padding: 8px;
   color: %(text.primary)s; font-size: %(font.sm)s; text-align: left;
 }
 QPushButton#RecentCard:hover { background: %(bg.hover)s; border-color: %(accent.default)s; }
 QPushButton#HomeAction {
-  background: %(bg.field)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.sm)s; padding: 6px 12px; color: %(text.secondary)s;
 }
 QPushButton#HomeAction:hover { background: %(bg.hover)s; color: %(text.primary)s; }
 
 QGroupBox {
+  background: %(bg.panel)s;
   border: 1px solid %(border.subtle)s; border-radius: %(radius.md)s;
   margin-top: 10px; padding: 10px 8px 8px;
 }
@@ -269,20 +271,20 @@ def apply_theme(name, force=False):
     p.setColor(QPalette.Window, QColor(c["bg.canvas"]))
     p.setColor(QPalette.WindowText, QColor(c["text.primary"]))
     p.setColor(QPalette.Base, QColor(c["bg.field"]))
-    p.setColor(QPalette.AlternateBase, QColor(c["bg.subtle"]))
+    p.setColor(QPalette.AlternateBase, QColor(c["bg.raised"]))
     p.setColor(QPalette.Text, QColor(c["text.primary"]))
-    p.setColor(QPalette.Button, QColor(c["bg.field"]))
+    p.setColor(QPalette.Button, QColor(c["bg.raised"]))
     p.setColor(QPalette.ButtonText, QColor(c["text.primary"]))
     p.setColor(QPalette.Highlight, QColor(c["bg.selected"]))
     p.setColor(QPalette.HighlightedText, QColor(c["text.primary"]))
-    p.setColor(QPalette.ToolTipBase, QColor(c["bg.panel"]))
+    p.setColor(QPalette.ToolTipBase, QColor(c["bg.raised"]))
     p.setColor(QPalette.ToolTipText, QColor(c["text.primary"]))
     p.setColor(QPalette.PlaceholderText, QColor(c["text.tertiary"]))
     p.setColor(QPalette.Link, QColor(c["accent.default"]))
     p.setColor(QPalette.LinkVisited, QColor(c["accent.hover"]))
     p.setColor(QPalette.Mid, QColor(c["border.subtle"]))
     p.setColor(QPalette.Dark, QColor(c["border.strong"]))
-    p.setColor(QPalette.Disabled, QPalette.Text, QColor(c["text.tertiary"]))
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(c["text.tertiary"]))
+    p.setColor(QPalette.Disabled, QPalette.Text, QColor(c["text.disabled"]))
+    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(c["text.disabled"]))
     app.setPalette(p)
     app.setStyleSheet(TPL % c)
