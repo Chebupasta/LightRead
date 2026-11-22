@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
                                 QGraphicsOpacityEffect)
 
-from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS,
+from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
 from formats import ALL_EXTS, open_source, read_meta, FormatError
 from library import Library
@@ -1225,6 +1225,7 @@ class NavDelegate(QStyledItemDelegate):
             "tag": c["data.djvu"],
             "coll": c["data.docx"],
             "smart": c["status.success"],
+            "presentations": c["data.pptx"],
             "folder": c["text.tertiary"],
         }
         p.save()
@@ -1609,6 +1610,12 @@ class Win(QMainWindow):
         node(root, "Непрочитанные", dict(kind="unread"))
         node(root, "Избранное", dict(kind="fav"))
         node(root, "Недавние", dict(kind="recent"))
+        n_pres = self.lib.q("SELECT COUNT(*) c FROM books WHERE fmt IN (" +
+                            ",".join("?" for _ in PRESENTATION_FMTS) + ")", PRESENTATION_FMTS)[0]["c"]
+        pn = node(root, f"Презентации ({n_pres})", dict(kind="presentations"))
+        present = self.lib.distinct("fmt")
+        for f in [f for f in present if f in PRESENTATION_FMTS]:
+            node(pn, f.upper(), dict(kind="fmt", value=f))
         tn = node(root, "Метки", dict(kind="tags"))
         for t in self.lib.tags():
             node(tn, f"{t['name']} ({t['n']})", dict(kind="tag", value=t["id"]), t["name"])

@@ -1,7 +1,7 @@
 """SQLite-хранилище библиотеки."""
 import re, shutil, sqlite3, threading, time
 from pathlib import Path
-from common import DB, COVERS, S, norm
+from common import DB, COVERS, S, PRESENTATION_FMTS, norm
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS books(
@@ -201,7 +201,10 @@ class Library:
                 rows = [r for r in rows if any(q in str(r[c] or "").lower()
                                                for c in ("title", "author", "series", "annotation"))]
             return rows
-        if k == "status": w.append("status=?"); a.append(f["value"])
+        if k == "presentations":
+            w.append("fmt IN (" + ",".join("?" for _ in PRESENTATION_FMTS) + ")")
+            a.extend(PRESENTATION_FMTS)
+        elif k == "status": w.append("status=?"); a.append(f["value"])
         elif k == "fav": w.append("favorite=1")
         elif k == "recent": w.append("last_read>0")
         elif k == "unread": w.append("progress<0.005")
