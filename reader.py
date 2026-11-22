@@ -371,6 +371,12 @@ class Reader(QMainWindow):
         self.note_edit.setAccessibleName("Редактор заметки")
         self.note_edit.setPlaceholderText("Текст заметки…")
         self.note_edit.setMaximumHeight(90)
+        self.note_edit.setPlainText((S.get("note_drafts") or {}).get(str(self.bid), ""))
+        self._draft_timer = QTimer(self)
+        self._draft_timer.setSingleShot(True)
+        self._draft_timer.setInterval(600)
+        self._draft_timer.timeout.connect(self.save_draft)
+        self.note_edit.textChanged.connect(lambda: self._draft_timer.start())
         self._edit_note_id = None
         QShortcut(QKeySequence("Ctrl+Return"), self.note_edit, self.save_note_text)
         nr = QHBoxLayout()
@@ -581,6 +587,17 @@ class Reader(QMainWindow):
         self.note_edit.setPlainText(r["note"] or "")
         self.note_edit.setFocus()
 
+    def save_draft(self):
+        self._draft_timer.stop()
+        drafts = dict(S.get("note_drafts") or {})
+        text = self.note_edit.toPlainText()
+        if text.strip():
+            drafts[str(self.bid)] = text
+        else:
+            drafts.pop(str(self.bid), None)
+        S["note_drafts"] = drafts
+        S.save()
+
     def save_note_text(self):
         text = self.note_edit.toPlainText().strip()
         if not text:
@@ -598,6 +615,10 @@ class Reader(QMainWindow):
                               d["color"], d["text"], text, anchor=_plain_text(d.get("text", ""))[:240])
             self._edit_note_id = None
         self.note_edit.clear()
+        drafts = dict(S.get("note_drafts") or {})
+        drafts.pop(str(self.bid), None)
+        S["note_drafts"] = drafts
+        S.save()
         self.refresh_notes()
         self.statusBar().showMessage("Заметка сохранена", 2000)
         self.notify("Заметка сохранена")
@@ -698,6 +719,7 @@ class Reader(QMainWindow):
         for timer in (self._save, self._auto, self._clock):
             if timer.isActive():
                 timer.stop()
+        self.save_draft()
         self.save_pos()
         self.tts.stop()
         self._tts_clear()

@@ -1,5 +1,5 @@
 """SQLite-хранилище библиотеки."""
-import sqlite3, threading, time
+import re, shutil, sqlite3, threading, time
 from pathlib import Path
 from common import DB, COVERS, S, norm
 
@@ -22,6 +22,27 @@ CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY, book INTEGER, chapter I
 CREATE TABLE IF NOT EXISTS stats(day TEXT, book INTEGER, seconds REAL, pages INTEGER, PRIMARY KEY(day,book));
 CREATE INDEX IF NOT EXISTS i_title ON books(title); CREATE INDEX IF NOT EXISTS i_read ON books(last_read);
 """
+
+FTS_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(text, note,
+  content='notes', content_rowid='id', tokenize='unicode61');
+CREATE VIRTUAL TABLE IF NOT EXISTS marks_fts USING fts5(title, text,
+  content='marks', content_rowid='id', tokenize='unicode61');
+CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+  INSERT INTO notes_fts(rowid,text,note) VALUES(new.id,new.text,new.note); END;
+CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts,rowid,text,note) VALUES('delete',old.id,old.text,old.note); END;
+CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts,rowid,text,note) VALUES('delete',old.id,old.text,old.note);
+  INSERT INTO notes_fts(rowid,text,note) VALUES(new.id,new.text,new.note); END;
+CREATE TRIGGER IF NOT EXISTS marks_ai AFTER INSERT ON marks BEGIN
+  INSERT INTO marks_fts(rowid,title,text) VALUES(new.id,new.title,new.text); END;
+CREATE TRIGGER IF NOT EXISTS marks_ad AFTER DELETE ON marks BEGIN
+  INSERT INTO marks_fts(marks_fts,rowid,title,text) VALUES('delete',old.id,old.title,old.text); END;
+CREATE TRIGGER IF NOT EXISTS marks_au AFTER UPDATE ON marks BEGIN
+  INSERT INTO marks_fts(marks_fts,rowid,title,text) VALUES('delete',old.id,old.title,old.text);
+  INSERT INTO marks_fts(rowid,title,text) VALUES(new.id,new.title,new.text); END;
+"""
 ORDER = {"added_desc": "added DESC", "added_asc": "added ASC", "title": "title COLLATE NOCASE",
          "author": "author COLLATE NOCASE, title COLLATE NOCASE", "read": "last_read DESC",
          "progress": "progress DESC", "size": "size DESC", "fmt": "fmt, title COLLATE NOCASE",
@@ -31,8 +52,42 @@ ORDER = {"added_desc": "added DESC", "added_asc": "added ASC", "title": "title C
 class Library:
     def __init__(self, path=DB):
         self.lock = threading.RLock()
-        self.c = sqlite3.connect(path, check_same_thread=False)
-        self.c.row_factory = sqlite3.Row
+        self.path = Path(path)
+        self.integrity_ok = True
+        self.integrity_backup = ""
+        self.fts_ok = False
+        self.c = self._connect()
+        with self.lock:
+            usable = False
+            try:
+                result = self.c.execute("PRAGMA integrity_check").fetchone()[0]
+                usable = result == "ok"
+                if usable:
+                    self._setup()
+            except sqlite3.DatabaseError:
+                usable = False
+            if not usable:
+                self.integrity_ok = False
+                try:
+                    self.c.close()
+                except sqlite3.Error:
+                    pass
+                backup = self.path.with_name(self.path.name + f".corrupt-{int(time.time())}")
+                try:
+                    shutil.copy2(self.path, backup)
+                    self.integrity_backup = str(backup)
+                except OSError:
+                    pass
+                self.path.unlink(missing_ok=True)
+                self.c = self._connect()
+                self._setup()
+
+    def _connect(self):
+        c = sqlite3.connect(str(self.path), check_same_thread=False)
+        c.row_factory = sqlite3.Row
+        return c
+
+    def _setup(self):
         with self.lock:
             self.c.executescript(SCHEMA)
             cols = {r["name"] for r in self.c.execute("PRAGMA table_info(books)")}
@@ -45,6 +100,14 @@ class Library:
                 self.c.execute("ALTER TABLE notes ADD COLUMN anchor TEXT DEFAULT ''")
             self.c.commit()
             self._dedupe_paths()
+            try:
+                self.c.executescript(FTS_SCHEMA)
+                self.c.execute("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')")
+                self.c.execute("INSERT INTO marks_fts(marks_fts) VALUES('rebuild')")
+                self.c.commit()
+                self.fts_ok = True
+            except sqlite3.Error:
+                self.fts_ok = False
 
     def _dedupe_paths(self):
         """Слить строки, которые указывают на один и тот же файл."""
@@ -150,10 +213,22 @@ class Library:
         elif k == "tag": w.append("id IN (SELECT book FROM book_tag WHERE tag=?)"); a.append(f["value"])
         if search:
             like = f"%{search}%"
-            w.append("(title LIKE ? OR author LIKE ? OR series LIKE ? OR annotation LIKE ? OR "
-                     "id IN (SELECT book FROM notes WHERE note LIKE ? OR text LIKE ?) OR "
-                     "id IN (SELECT book FROM marks WHERE title LIKE ? OR text LIKE ?))")
-            a += [like] * 8
+            parts = ["title LIKE ?", "author LIKE ?", "series LIKE ?", "annotation LIKE ?"]
+            args = [like] * 4
+            if self.fts_ok:
+                terms = re.findall(r"\w+", search, re.UNICODE)
+                match = " ".join(t + "*" for t in terms)
+                if not match:
+                    match = '"' + search.replace('"', '""') + '"'
+                parts += ["id IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?)",
+                          "id IN (SELECT rowid FROM marks_fts WHERE marks_fts MATCH ?)"]
+                args += [match, match]
+            else:
+                parts += ["id IN (SELECT book FROM notes WHERE note LIKE ? OR text LIKE ?)",
+                          "id IN (SELECT book FROM marks WHERE title LIKE ? OR text LIKE ?)"]
+                args += [like] * 4
+            w.append("(" + " OR ".join(parts) + ")")
+            a += args
         sql = "SELECT * FROM books" + (" WHERE " + " AND ".join(w) if w else "")
         if k == "recent":
             sql += " ORDER BY last_read DESC LIMIT 60"

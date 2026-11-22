@@ -174,6 +174,7 @@ class BookDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self.grid = True
         self.hover = None
+        self.action_rects = {}
         self._pix = OrderedDict()
         self._scaled = OrderedDict()
         self._miss = set()
@@ -257,6 +258,21 @@ class BookDelegate(QStyledItemDelegate):
         p.setBrush(QColor(color))
         p.drawEllipse(QRectF(x, y, diameter, diameter))
 
+    def _draw_actions(self, p, cover):
+        c = self._c
+        size, gap = 18, 4
+        x = cover.right() - (size + gap) * 3 - 6
+        y = cover.y() + 7
+        f = p.font(); f.setPointSize(10); f.setWeight(QFont.Medium); p.setFont(f)
+        for key, glyph in (("read", "▶"), ("fav", "★"), ("info", "i")):
+            r = QRectF(x, y, size, size)
+            p.setPen(Qt.NoPen); p.setBrush(QColor(0, 0, 0, 150))
+            p.drawEllipse(r)
+            p.setPen(QColor(c["text.primary"]))
+            p.drawText(r, Qt.AlignCenter, glyph)
+            self.action_rects[key] = r
+            x += size + gap
+
     @staticmethod
     def _label_on_cover(p, x, y, text, color, size=8):
         f = p.font(); f.setPointSize(size); f.setWeight(QFont.Medium); p.setFont(f)
@@ -332,6 +348,7 @@ class BookDelegate(QStyledItemDelegate):
         p.setRenderHint(QPainter.TextAntialiasing, True)
         p.setRenderHint(QPainter.SmoothPixmapTransform, True)
         r = QRectF(opt.rect).adjusted(10, 10, -10, -10)
+        self.action_rects = {}
         if opt.state & QStyle.State_Selected:
             p.setPen(Qt.NoPen); p.setBrush(QColor(c["bg.selected"]))
             p.drawRoundedRect(QRectF(opt.rect).adjusted(2, 2, -2, -2), 4, 4)
@@ -344,12 +361,14 @@ class BookDelegate(QStyledItemDelegate):
         if self.grid:
             cover = QRectF(r.x(), r.y(), r.width(), r.height() * 0.655)
             self._cover(p, cover, b, pm)
+            if b["id"] == self.hover:
+                self._draw_actions(p, cover)
             labels = {"reading": "ЧИТАЮ", "read": "ПРОЧИТАНО", "planned": "ПЛАН"}
             label = labels.get(b["status"])
             if label:
                 self._dot(p, cover.x() + 10, cover.y() + 10, status)
                 self._label_on_cover(p, cover.x() + 20, cover.y() + 3, label, c["text.primary"])
-            if b["favorite"]:
+            if b["favorite"] and b["id"] != self.hover:
                 star = QRectF(cover.right() - 25, cover.y() + 7, 18, 18)
                 p.setPen(Qt.NoPen); p.setBrush(QColor(0, 0, 0, 110))
                 p.drawEllipse(star)
@@ -459,6 +478,7 @@ SCHEMA_UI = [
         ("webdav_auto", "Синхронизировать при закрытии", "bool"),
         ("update_url", "URL релизов (GitHub API)", "text"),
         ("update_auto", "Проверять обновления при запуске", "bool"),
+        ("show_network", "Показывать сетевые функции", "bool"),
     ]),
     ("Библиотека", [
         ("folders", "Папки сканирования", "paths"), ("scan_on_start", "Сканировать при запуске", "bool"),
@@ -1254,6 +1274,11 @@ class Win(QMainWindow):
         super().__init__()
         apply_theme(S["theme"], force=True)
         self.lib = Library()
+        if not self.lib.integrity_ok:
+            msg = "База данных была повреждена и пересоздана"
+            if self.lib.integrity_backup:
+                msg += f". Копия: {self.lib.integrity_backup}"
+            QTimer.singleShot(0, lambda: self.notify(msg))
         self.reader = None          # последняя активная книга
         self.readers = []           # все открытые книги (многодокументный режим)
         self.flt = None
@@ -1351,18 +1376,20 @@ class Win(QMainWindow):
         m.addAction("Сканировать", self.scan)
         m.addAction("Догрузить обложки", self.fetch_covers)
         m.addAction("Все заметки…", self.all_notes)
-        m.addAction("OPDS-каталоги…", self.opds)
-        m.addSeparator()
-        m.addAction("Синхронизация: отправить", self.sync_upload)
-        m.addAction("Синхронизация: получить", self.sync_download)
-        m.addSeparator()
+        if S.get("show_network"):
+            m.addAction("OPDS-каталоги…", self.opds)
+            m.addSeparator()
+            m.addAction("Синхронизация: отправить", self.sync_upload)
+            m.addAction("Синхронизация: получить", self.sync_download)
+            m.addSeparator()
         m.addAction("Резервная копия…", self.backup)
         m.addAction("Восстановить из копии…", self.restore)
         m.addSeparator()
         m.addAction("Выход", self.close, QKeySequence("Ctrl+Q"))
         h = self.menuBar().addMenu("Справка")
         h.addAction("Горячие клавиши", self.hotkeys)
-        h.addAction("Проверить обновления…", self.check_updates)
+        if S.get("show_network"):
+            h.addAction("Проверить обновления…", self.check_updates)
         h.addAction("О программе", lambda: QMessageBox.about(
             self, "LightRead", f"<b>LightRead {VER}</b><br>Читалка на Qt6.<br>Данные: {DATA}"))
 
@@ -1590,6 +1617,23 @@ class Win(QMainWindow):
                     if self.deleg.hover != bid:
                         self.deleg.hover = bid
                         self.list.viewport().update()
+                elif ev.type() == QEvent.MouseButtonPress and self.deleg.action_rects:
+                    pos = ev.position().toPoint()
+                    for key, rect in self.deleg.action_rects.items():
+                        if rect.contains(pos.x(), pos.y()):
+                            idx = self.list.indexAt(pos)
+                            data = idx.data(ROLE) if idx.isValid() else None
+                            if data:
+                                bid = data["id"]
+                                if key == "read":
+                                    self.open_book(bid)
+                                elif key == "fav":
+                                    self.lib.set_field(bid, favorite=0 if data["favorite"] else 1)
+                                    self.reload()
+                                elif key == "info":
+                                    InfoDialog(self.lib, bid, self).exec()
+                                    self.reload()
+                            return True
                 elif ev.type() == QEvent.Leave:
                     if self.deleg.hover is not None:
                         self.deleg.hover = None
