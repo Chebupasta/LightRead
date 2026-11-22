@@ -107,6 +107,9 @@ SEMANTIC = {
         "data.fb2": _c("indigo.400"), "data.djvu": _c("violet.500"),
         "data.docx": _c("blue.500"), "data.mobi": _c("amber.500"),
         "data.azw3": _c("amber.500"), "data.txt": _c("ink.350"),
+        "data.pptx": _c("amber.500"), "data.odp": _c("amber.500"),
+        "data.ppt": _c("amber.500"), "data.pps": _c("amber.500"),
+        "data.ppsx": _c("amber.500"), "data.otp": _c("amber.500"),
         "shadow": "#80000000",
     },
     "light": {
@@ -137,6 +140,9 @@ SEMANTIC = {
         "data.fb2": _c("indigo.600"), "data.djvu": _c("violet.700"),
         "data.docx": _c("blue.700"), "data.mobi": _c("amber.700"),
         "data.azw3": _c("amber.700"), "data.txt": _c("paper.550"),
+        "data.pptx": _c("amber.700"), "data.odp": _c("amber.700"),
+        "data.ppt": _c("amber.700"), "data.pps": _c("amber.700"),
+        "data.ppsx": _c("amber.700"), "data.otp": _c("amber.700"),
         "shadow": "#16000000",
     },
 }
