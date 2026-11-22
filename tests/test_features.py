@@ -171,6 +171,22 @@ class TestOfficeFormats(unittest.TestCase):
         src.close()
         self.assertEqual(formats.read_meta(str(p))[1], "odp")
 
+    def test_legacy_doc_text_fallback(self):
+        p = TMP / "legacy.doc"
+        p.write_bytes(b"\xd0\xcf\x11\xe0" + "Легаси документ Ворд".encode("utf-16le"))
+        src = formats.open_source(str(p))
+        self.assertGreaterEqual(src.count, 1)
+        self.assertIn("Легаси", src.chapter(0).html)
+        src.close()
+
+    def test_legacy_ppt_text_fallback(self):
+        p = TMP / "legacy.ppt"
+        p.write_bytes(b"\xd0\xcf\x11\xe0" + "Легаси презентация Слайд".encode("utf-16le"))
+        src = formats.open_source(str(p))
+        self.assertGreaterEqual(src.count, 1)
+        self.assertIn("Легаси", src.chapter(0).html)
+        src.close()
+
     def test_presentation_extensions_registered(self):
         for ext in (".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"):
             self.assertIn(ext, formats.ALL_EXTS)
