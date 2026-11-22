@@ -1005,9 +1005,14 @@ class Docx(Parts):
                     fill = re.sub(r"[^0-9a-fA-F]", "", val or c.get(W + "fill") or "")
                     if fill:
                         css.append("background-color:#" + fill[:6])
+            opens, closes = [], []
             if css:
-                tags.insert(0, f'span style="{html.escape(";".join(css), True)}"')
-            return "".join(f"<{t}>" for t in tags), "".join(f"</{t}>" for t in reversed(tags))
+                opens.append(f'<span style="{html.escape(";".join(css), True)}">')
+                closes.append("</span>")
+            for t in tags:
+                opens.append(f"<{t}>")
+                closes.append(f"</{t}>")
+            return "".join(opens), "".join(reversed(closes))
 
         def pstyle(ppr):
             css = []
@@ -1696,9 +1701,32 @@ class Presentation(Parts):
         self.meta.title = self.meta.title or _P(path).stem
         self.finalize()
 
-    def _slide(self, number, title, blocks, images, notes=""):
-        html_parts = [f"<h1>{html.escape(title or f'Слайд {number}')}</h1>"]
-        html_parts += [f"<p>{html.escape(x)}</p>" for x in blocks if x.strip()]
+    @staticmethod
+    def _pptx_run(r):
+        rpr = next((c for c in r if ln(c.tag) == "rPr"), None)
+        opens, closes, css = [], [], []
+        if rpr is not None:
+            for attr, tag in (("b", "b"), ("i", "i"), ("u", "u")):
+                if rpr.get(attr) in ("1", "true", "sng"):
+                    opens.append(f"<{tag}>"); closes.append(f"</{tag}>")
+            if rpr.get("sz"):
+                try:
+                    css.append(f"font-size:{int(rpr.get('sz')) / 100:.0f}pt")
+                except ValueError:
+                    pass
+            for c in rpr.iter():
+                if ln(c.tag) == "srgbClr" and c.get("val"):
+                    css.append("color:#" + re.sub(r"[^0-9a-fA-F]", "", c.get("val"))[:6])
+                    break
+        if css:
+            opens.insert(0, f'<span style="{html.escape(";".join(css), True)}">')
+            closes.append("</span>")
+        text = "".join(t.text or "" for t in r.iter() if ln(t.tag) == "t")
+        return "".join(opens) + html.escape(text) + "".join(reversed(closes))
+
+    def _slide(self, number, title, blocks, images, notes="", rich=False, title_html=None):
+        html_parts = [title_html or f"<h1>{html.escape(title or f'Слайд {number}')}</h1>"]
+        html_parts += [x if rich else f"<p>{html.escape(x)}</p>" for x in blocks if x.strip()]
         html_parts += [f'<img src="z:{html.escape(x, True)}"/>' for x in images]
         if notes.strip():
             html_parts.append(f"<p><i>Заметки: {html.escape(notes.strip())}</i></p>")
@@ -1739,13 +1767,23 @@ class Presentation(Parts):
                         srels[r.get("Id")] = r.get("Target", "")
                 except Exception:
                     pass
-            blocks = []
+            blocks, block_text = [], []
             for p in root.iter():
                 if ln(p.tag) != "p":
                     continue
-                text = "".join(t.text or "" for t in p.iter() if ln(t.tag) == "t").strip()
-                if text:
-                    blocks.append(text)
+                plain = "".join(t.text or "" for t in p.iter() if ln(t.tag) == "t").strip()
+                if not plain:
+                    continue
+                block_text.append(plain)
+                ppr = next((c for c in p if ln(c.tag) == "pPr"), None)
+                algn = ppr.get("algn") if ppr is not None else ""
+                style = ""
+                if algn in ("ctr", "r", "just", "justLow"):
+                    style = f' style="text-align:{"center" if algn == "ctr" else "right" if algn == "r" else "justify"}"'
+                first = len(block_text) == 1
+                tag = "h2" if first else "p"
+                runs = "".join(self._pptx_run(r) for r in p.iter() if ln(r.tag) == "r")
+                blocks.append(f"<{tag}{style}>{runs}</{tag}>")
             images = []
             for blip in root.iter():
                 if ln(blip.tag) != "blip":
@@ -1762,12 +1800,50 @@ class Presentation(Parts):
                     notes = " ".join(t.text or "" for t in nroot.iter() if ln(t.tag) == "t")
                 except Exception:
                     pass
-            self._slide(i, blocks[0] if blocks else f"Слайд {i}", blocks[1:], images, notes)
+            title = block_text[0] if block_text else f"Слайд {i}"
+            self._slide(i, title, blocks[1:], images, notes, rich=True,
+                        title_html=blocks[0] if blocks else None)
 
     def _odp(self):
         root = ET.fromstring(self.z.read("content.xml"))
         draw = "{urn:oasis:names:tc:opendocument:xmlns:drawing:1.0}"
         xlink = "{http://www.w3.org/1999/xlink}"
+        tns = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+        sns = "{urn:oasis:names:tc:opendocument:xmlns:style:1.0}"
+        fns = "{urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0}"
+
+        styles = {}
+        roots = [root]
+        try:
+            roots.append(ET.fromstring(self.z.read("styles.xml")))
+        except Exception:
+            pass
+        for sr in roots:
+            for st in sr.iter():
+                if ln(st.tag) != "style":
+                    continue
+                name = st.get(sns + "name")
+                if not name:
+                    continue
+                opens, closes, css = [], [], []
+                tp = next((c for c in st if ln(c.tag) == "text-properties"), None)
+                pp = next((c for c in st if ln(c.tag) == "paragraph-properties"), None)
+                if tp is not None:
+                    if tp.get(fns + "font-weight") == "bold":
+                        opens.append("<b>"); closes.append("</b>")
+                    if tp.get(fns + "font-style") == "italic":
+                        opens.append("<i>"); closes.append("</i>")
+                    if tp.get(fns + "color"):
+                        css.append("color:" + tp.get(fns + "color"))
+                    if tp.get(fns + "font-size"):
+                        css.append("font-size:" + tp.get(fns + "font-size"))
+                if pp is not None and pp.get(fns + "text-align"):
+                    css.append("text-align:" + pp.get(fns + "text-align"))
+                if css:
+                    opens.insert(0, f'<span style="{html.escape(";".join(css), True)}">')
+                    closes.append("</span>")
+                styles[name] = ("".join(opens), "".join(reversed(closes)))
+
         pages = [e for e in root.iter() if ln(e.tag) == "page"]
         if not pages:
             return
@@ -1778,13 +1854,16 @@ class Presentation(Parts):
                 t = ln(el.tag)
                 if t in ("p", "h"):
                     text = "".join(el.itertext()).strip()
-                    if text:
-                        blocks.append(text)
+                    if not text:
+                        continue
+                    op, cl = styles.get(el.get(tns + "style-name"), ("", ""))
+                    tag = "h2" if t == "h" or not blocks else "p"
+                    blocks.append(f"<{tag}>{op}{html.escape(text)}{cl}</{tag}>")
                 elif t == "image":
                     href = el.get(xlink + "href", "")
                     if href:
                         images.append(href)
-            self._slide(i, title, blocks, images)
+            self._slide(i, title, blocks, images, rich=True)
 
     def resource(self, key):
         if key.startswith("z:"):
