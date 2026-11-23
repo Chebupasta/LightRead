@@ -1572,6 +1572,10 @@ class Win(QMainWindow):
         self._group_headers = {}
         self._group_lock = False
         self._hover_group = None
+        self._hover_pos = None
+        self._group_hover_timer = QTimer(self)
+        self._group_hover_timer.setSingleShot(True)
+        self._group_hover_timer.timeout.connect(self._show_hover_menu)
         self.closed_tabs = []
         self._tab_history = []
         self._history_pos = 0
@@ -1936,13 +1940,16 @@ class Win(QMainWindow):
                     if w is not None and getattr(w, "objectName", lambda: "")() == "TabGroup":
                         if self._hover_group is not w:
                             self._hover_group = w
-                            self.show_group_menu(w, ev.globalPosition().toPoint())
+                            self._hover_pos = ev.globalPosition().toPoint()
+                            self._group_hover_timer.start(350)
                     else:
+                        self._group_hover_timer.stop()
                         self._hover_group = None
                         if getattr(self, "_group_menu", None) is not None:
                             self._group_menu.close()
                             self._group_menu = None
                 if ev.type() == QEvent.Leave:
+                    self._group_hover_timer.stop()
                     self._hover_group = None
                     if getattr(self, "_group_menu", None) is not None:
                         self._group_menu.close()
@@ -2372,6 +2379,7 @@ class Win(QMainWindow):
                 idx = self.book_tabs.addTab(header, "")
                 self.book_tabs.setTabIcon(idx, QIcon(pm))
                 self.book_tabs.setTabToolTip(idx, f"Группа: {name}")
+                bar.setTabButton(idx, QTabBar.RightSide, None)
                 self._group_headers[name] = header
                 for r in rows:
                     old = self.book_tabs.indexOf(r)
@@ -2413,6 +2421,11 @@ class Win(QMainWindow):
         w = self.book_tabs.widget(i)
         if getattr(w, "objectName", lambda: "")() == "TabGroup":
             self.toggle_group(w)
+
+    def _show_hover_menu(self):
+        header = self._hover_group
+        if header is not None and self._hover_pos is not None:
+            self.show_group_menu(header, self._hover_pos)
 
     def show_group_menu(self, header, pos):
         rows = [r for r in self.groups.get(header.group_name, [])
