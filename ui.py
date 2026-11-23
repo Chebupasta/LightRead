@@ -451,6 +451,7 @@ SCHEMA_UI = [
         ("columns", "Колонок", "choice", [1, 2]), ("mode", "Режим", "choice", ["paged", "scroll"]),
         ("brightness", "Яркость", "float", 0.3, 1.0),
         ("hyphenate", "Мягкие переносы (текстовые книги)", "bool"),
+        ("office_pdf", "Office: точный вид через PDF (1:1)", "bool"),
     ]),
     ("PDF и сканы", [
         ("pdf_fit", "Подгонка", "choice", ["width", "page", "custom"]),

@@ -196,6 +196,7 @@ DEFAULTS = dict(
     session_tabs=[], session_active=None, session_groups={}, smart=[], daily_goal=0,
     accent="indigo", opds=[], webdav_url="", webdav_user="", webdav_password="", webdav_auto=False,
     update_url="", update_auto=False, hyphenate=False, show_network=False, note_drafts={},
+    office_pdf=True,
 )
 
 ACCENTS = {
@@ -208,6 +209,7 @@ ACCENTS = {
 
 
 PRESENTATION_FMTS = ("pptx", "ppt", "pps", "ppsx", "potx", "odp", "otp")
+OFFICE_FMTS = ("docx", "docm", "dotx", "doc", "dot", "rtf", "odt", "ott") + PRESENTATION_FMTS
 
 
 class Settings(dict):

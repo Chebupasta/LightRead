@@ -1,7 +1,8 @@
 """Окно чтения: постоянно видимая панель настройки, навигация, заметки, TTS."""
 import json, re, time
 from collections import OrderedDict
-from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, Signal
+from pathlib import Path
+from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, QThread, QEventLoop, Signal
 from PySide6.QtGui import (QAction, QDesktopServices, QGuiApplication, QKeySequence, QIcon,
                            QPixmap, QPainter, QColor, QFont, QPen, QShortcut)
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget, QTreeWidgetItem,
@@ -11,8 +12,8 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget
                                QApplication, QComboBox, QSpinBox, QCheckBox, QPushButton,
                                QListView, QStyledItemDelegate, QStyle, QFontComboBox, QTextEdit)
 
-from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK
-from formats import open_source, open_source_no_cover, FormatError, plain
+from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK, OFFICE_FMTS
+from formats import open_source, open_source_no_cover, open_exact_source, FormatError, plain
 from views import ReflowView, FixedView, pick_font, chapter_text
 from services import Tts, StarDict
 from theming import apply_theme, chrome
@@ -244,6 +245,22 @@ class ThumbDelegate(QStyledItemDelegate):
         p.restore()
 
 
+class _OfficePdfWorker(QThread):
+    """Конвертация Office → PDF вне GUI-потока, чтобы окно не замирало."""
+    done = Signal(str)
+
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+
+    def run(self):
+        try:
+            from formats_extra import office_faithful_pdf
+            self.done.emit(office_faithful_pdf(self.path) or "")
+        except Exception:
+            self.done.emit("")
+
+
 class Reader(QMainWindow):
     closed = Signal(object)  # уведомление библиотеки о закрытии окна
 
@@ -259,7 +276,16 @@ class Reader(QMainWindow):
                 pass
         self.st["theme"] = norm_theme(self.st.get("theme"))
         apply_theme(self.st["theme"], force=True)
-        self.src = open_source_no_cover(self.row["path"])
+        path = self.row["path"]
+        self.exact = False
+        src = None
+        if (self.st.get("office_pdf", S.get("office_pdf", True))
+                and Path(path).suffix.lower().lstrip(".") in OFFICE_FMTS):
+            pdf = self._office_pdf(path)
+            if pdf:
+                src = open_source_no_cover(pdf)
+                self.exact = True
+        self.src = src or open_source_no_cover(path)
         self.fixed = bool(self.src.fixed)
         self.view = FixedView(self.src, self.st) if self.fixed else ReflowView(self.src, self.st)
         self.setCentralWidget(self.view)
@@ -301,6 +327,28 @@ class Reader(QMainWindow):
         self.view.restore(self.row["chapter"], self.row["pos"])
         QTimer.singleShot(60, self.on_changed)
         self.view.setFocus()
+
+    def _office_pdf(self, path):
+        from formats_extra import office_faithful_cached
+        cached = office_faithful_cached(path)
+        if cached:
+            return cached
+        dlg = QProgressDialog("Подготовка точного вида (PDF)…", "", 0, 0, self)
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.show()
+        loop = QEventLoop(self)
+        result = [""]
+        worker = _OfficePdfWorker(path)
+        worker.done.connect(lambda pdf: result.__setitem__(0, pdf))
+        worker.finished.connect(loop.quit)
+        worker.start()
+        loop.exec()
+        worker.wait(1000)
+        dlg.close()
+        dlg.deleteLater()
+        return result[0]
 
     def _build(self):
         tb = QToolBar("Чтение"); tb.setMovable(False); self.addToolBar(tb)
