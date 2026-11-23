@@ -1424,21 +1424,15 @@ class CommandPalette(QDialog):
 
 
 class BrowserTabs(QWidget):
-    """Панель вкладок в стиле браузера: полоса вкладок и кнопка «+» рядом с ними."""
+    """Панель вкладок в стиле браузера."""
 
     currentChanged = Signal(int)
     tabCloseRequested = Signal(int)
-    newTabRequested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._bar = QTabBar(self)
         self._stack = QStackedWidget(self)
-        self._plus = QToolButton(self)
-        self._plus.setText("+")
-        self._plus.setObjectName("NewTab")
-        self._plus.setToolTip("Новая вкладка")
-        self._plus.setCursor(Qt.ArrowCursor)
         self._bar.setExpanding(False)
         self._bar.setUsesScrollButtons(True)
         self._bar.setElideMode(Qt.ElideRight)
@@ -1447,11 +1441,9 @@ class BrowserTabs(QWidget):
         self._bar.currentChanged.connect(self._on_current)
         self._bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
         self._bar.tabMoved.connect(self._on_moved)
-        self._plus.clicked.connect(self.newTabRequested.emit)
 
         head = QHBoxLayout(); head.setContentsMargins(0, 0, 0, 0); head.setSpacing(0)
         head.addWidget(self._bar, 1)
-        head.addWidget(self._plus, 0, Qt.AlignVCenter)
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
         root.addLayout(head)
         root.addWidget(self._stack, 1)
@@ -1701,7 +1693,6 @@ class Win(QMainWindow):
         self.cont_label = self.home.cont_label
         self.book_tabs = BrowserTabs(self)
         self.book_tabs.tabCloseRequested.connect(self.close_tab)
-        self.book_tabs.newTabRequested.connect(self.new_tab)
         bar = self.book_tabs.tabBar()
         bar.setContextMenuPolicy(Qt.CustomContextMenu)
         bar.customContextMenuRequested.connect(self.tab_menu)
@@ -2169,13 +2160,6 @@ class Win(QMainWindow):
         if not self.lib.book(bid):
             return
         self.open_book(bid)
-
-    def new_tab(self):
-        """Кнопка `+`: новая вкладка — главная, а если она уже открыта — добавление книги."""
-        if self.book_tabs.currentIndex() == HOME_TAB:
-            self.open_file()
-        else:
-            self.book_tabs.setCurrentIndex(HOME_TAB)
 
     def command_palette(self):
         d = CommandPalette(self)

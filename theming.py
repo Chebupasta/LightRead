@@ -114,15 +114,6 @@ QToolButton#TabClose {
 QToolButton#TabClose:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
 }
-QToolButton#NewTab {
-  background: %(bg.panel)s; border: 0; border-left: 1px solid %(border.subtle)s;
-  border-radius: 0; padding: 0 18px; margin: 0;
-  color: %(text.secondary)s; font-size: 22px;
-}
-QToolButton#NewTab:hover {
-  background: %(bg.hover)s; color: %(text.primary)s;
-  border-color: %(accent.default)s;
-}
 
 /* ── Поля ввода ───────────────────────────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextBrowser, QFontComboBox {
