@@ -312,7 +312,7 @@ QPushButton#RecentCard {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.md)s; padding: 12px 10px;
   color: %(text.primary)s; font-size: %(font.md)s; text-align: left;
-  min-height: 128px; max-width: 320px; line-height: 150%%;
+  line-height: 125%%;
 }
 QPushButton#RecentCard:hover {
   background: %(bg.hover)s; border-color: %(accent.default)s;

@@ -1165,7 +1165,7 @@ class HomePage(QWidget):
             self.recent_rows.append(row)
             host_layout.addLayout(row)
         host_layout.addStretch(1)
-        root.addWidget(self.recent_host, 1)
+        root.addWidget(self.recent_host)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
         sl = QHBoxLayout(self.stats); sl.setContentsMargins(16, 12, 16, 12); sl.setSpacing(28)
@@ -1195,6 +1195,7 @@ class HomePage(QWidget):
         lib_btn.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
         actions = QHBoxLayout(); actions.addWidget(open_btn); actions.addWidget(lib_btn); actions.addStretch(1)
         root.addLayout(actions)
+        root.addStretch(1)
 
     def _cover(self, bid, title, w, h):
         """Обложка книги или аккуратная заглушка с первой буквой названия."""
