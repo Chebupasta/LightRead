@@ -31,6 +31,7 @@ import services
 import theming
 import ui
 import views
+import reader as reader_mod
 from reader import Reader
 
 
@@ -539,6 +540,33 @@ class TestReflowFormatting(unittest.TestCase):
 
 
 class TestRobustness(unittest.TestCase):
+    def test_office_pdf_ignores_cancel_on_close(self):
+        from PySide6.QtWidgets import QWidget
+        src = TMP / "cancelcase.docx"
+        src.write_bytes(b"PK\x03\x04")
+        out = TMP / "cancelcase.pdf"
+        out.write_bytes(b"%PDF-1.7\n" + b"x" * 300 + b"\n%%EOF\n")
+        old_cached = formats_extra.office_faithful_cached
+        old_convert = formats_extra.office_faithful_pdf
+        old_dialog = reader_mod.QProgressDialog
+        formats_extra.office_faithful_cached = lambda path: ""
+        formats_extra.office_faithful_pdf = lambda path: str(out)
+
+        class CancelOnClose(old_dialog):
+            def close(self):
+                self.canceled.emit()
+                return super().close()
+
+        reader_mod.QProgressDialog = CancelOnClose
+        host = QWidget()
+        try:
+            self.assertEqual(reader_mod.Reader._office_pdf(host, str(src)), str(out))
+        finally:
+            reader_mod.QProgressDialog = old_dialog
+            formats_extra.office_faithful_cached = old_cached
+            formats_extra.office_faithful_pdf = old_convert
+            host.close()
+
     def test_settings_dialog_has_tabs(self):
         dlg = ui.SettingsDialog(dict(common.S))
         try:

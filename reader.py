@@ -354,6 +354,8 @@ class Reader(QMainWindow):
         dlg.canceled.connect(lambda: (cancelled.__setitem__(0, True), loop.quit()))
         worker.start()
         loop.exec()
+        pdf = "" if cancelled[0] else result[0]
+        dlg.canceled.disconnect()
         if cancelled[0]:
             worker.finished.connect(lambda: setattr(self, "_office_worker", None))
         else:
@@ -361,7 +363,7 @@ class Reader(QMainWindow):
             self._office_worker = None
         dlg.close()
         dlg.deleteLater()
-        return "" if cancelled[0] else result[0]
+        return pdf
 
     def _build(self):
         tb = QToolBar("Чтение"); tb.setMovable(False); self.addToolBar(tb)
