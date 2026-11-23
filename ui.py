@@ -1607,6 +1607,10 @@ class Win(QMainWindow):
         bar = self.book_tabs.tabBar()
         bar.setContextMenuPolicy(Qt.CustomContextMenu)
         bar.customContextMenuRequested.connect(self.tab_menu)
+        bar.setExpanding(False)
+        bar.setUsesScrollButtons(True)
+        bar.setElideMode(Qt.ElideRight)
+        bar.installEventFilter(self)
         self.book_tabs.setDocumentMode(True)
         self.book_tabs.setMovable(True)
         self.book_tabs.addTab(self.home, "Главная")
@@ -1820,6 +1824,16 @@ class Win(QMainWindow):
 
     def eventFilter(self, obj, ev):
         try:
+            if getattr(self, "book_tabs", None) is not None and obj is self.book_tabs.tabBar():
+                bar = self.book_tabs.tabBar()
+                if ev.type() == QEvent.MouseButtonPress and ev.button() == Qt.MiddleButton:
+                    idx = bar.tabAt(ev.position().toPoint())
+                    if idx > LIB_TAB:
+                        self.close_tab(idx)
+                    return True
+                if ev.type() == QEvent.MouseButtonDblClick and bar.tabAt(ev.position().toPoint()) < 0:
+                    self.book_tabs.setCurrentIndex(HOME_TAB)
+                    return True
             if obj is self.list.viewport():
                 if ev.type() == QEvent.Resize:
                     self.empty.resize(self.list.viewport().size())
@@ -2035,11 +2049,9 @@ class Win(QMainWindow):
         title = (row["title"] or "Без названия")[:40]
         self.book_tabs.addTab(r, title)
         idx = self.book_tabs.count() - 1
-        close = QToolButton()
-        close.setText("×"); close.setObjectName("TabClose")
-        close.setToolTip("Закрыть вкладку"); close.setCursor(Qt.ArrowCursor)
-        close.clicked.connect(lambda _=False, rr=r: self.close_tab(self.book_tabs.indexOf(rr)))
-        self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, close)
+        self.book_tabs.tabBar().setTabButton(
+            idx, QTabBar.RightSide,
+            self._tab_close_button(r, lambda rr: self.close_tab(self.book_tabs.indexOf(rr))))
         self.book_tabs.setCurrentWidget(r)
 
     def reader_fullscreen(self, r=None):
@@ -2162,7 +2174,9 @@ class Win(QMainWindow):
 
     def close_tab(self, i):
         w = self.book_tabs.widget(i)
-        if isinstance(w, Reader):
+        if isinstance(w, QDialog):
+            self.close_dialog_tab(w)
+        elif isinstance(w, Reader):
             w.close()
         elif i > LIB_TAB:
             self.book_tabs.removeTab(i)
@@ -2343,13 +2357,35 @@ class Win(QMainWindow):
         else:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(p.parent)))
 
+    def _tab_close_button(self, widget, callback):
+        button = QToolButton()
+        button.setText("×")
+        button.setObjectName("TabClose")
+        button.setToolTip("Закрыть вкладку")
+        button.setCursor(Qt.ArrowCursor)
+        button.clicked.connect(lambda _=False, w=widget: callback(w))
+        return button
+
+    def close_dialog_tab(self, dlg):
+        idx = self.book_tabs.indexOf(dlg)
+        if idx < 0:
+            return
+        try:
+            dlg.reject()
+        except Exception:
+            pass
+        idx = self.book_tabs.indexOf(dlg)
+        if idx >= 0:
+            self.book_tabs.removeTab(idx)
+
     def open_dialog_tab(self, dlg, title, on_accept=None):
         """Показать диалог вкладкой главного окна, а не отдельным окном."""
         prev = self.book_tabs.currentIndex()
         dlg.setWindowFlags(Qt.Widget)
         dlg.setAttribute(Qt.WA_DeleteOnClose, False)
         idx = self.book_tabs.addTab(dlg, title)
-        self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, None)
+        self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide,
+                                             self._tab_close_button(dlg, self.close_dialog_tab))
         self.book_tabs.setCurrentIndex(idx)
 
         def finish(code):
@@ -2475,7 +2511,8 @@ class Win(QMainWindow):
 <div style="line-height:150%">
 <h3>Общее</h3>
 F1 — справка · Ctrl+K — команды · Ctrl+1…9 — вкладка · Ctrl+Tab — следующая вкладка ·
-Ctrl+Shift+T — вернуть вкладку · Alt+←/→ — история вкладок
+Ctrl+Shift+T — вернуть вкладку · Alt+←/→ — история вкладок ·
+Средняя кнопка по вкладке — закрыть · двойной клик по пустому месту — главная
 <h3>Библиотека</h3>
 Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+D — вид ·
 Alt+Enter — свойства файла

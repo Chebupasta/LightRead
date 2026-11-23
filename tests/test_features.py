@@ -864,7 +864,9 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertEqual(self.win.book_tabs.count(), before + 1)
         dlg = self.win.book_tabs.widget(before)
         self.assertIsNotNone(dlg)
-        dlg.reject()
+        button = self.win.book_tabs.tabBar().tabButton(before, QTabBar.RightSide)
+        self.assertIsNotNone(button)
+        button.click()
         QApplication.processEvents()
         self.assertEqual(self.win.book_tabs.count(), before)
 
