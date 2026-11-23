@@ -1,6 +1,6 @@
 """Парсеры форматов. Единая модель: Source -> Chapter(title, html, anchors)."""
 from __future__ import annotations
-import base64, bisect, gzip, hashlib, html, io, os, posixpath, re, shutil, struct, subprocess, zipfile
+import base64, bisect, gzip, hashlib, html, io, os, posixpath, re, shutil, struct, subprocess, threading, zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -8,6 +8,16 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from common import CACHE, S
+
+_meta_state = threading.local()
+
+
+def _quick_meta():
+    return bool(getattr(_meta_state, "quick", False))
+
+
+def _skip_cover():
+    return bool(getattr(_meta_state, "skip_cover", False))
 
 
 class FormatError(Exception):
@@ -53,6 +63,87 @@ def _natural_key(value):
 
 def xtext(el):
     return "".join(el.itertext()).strip() if el is not None else ""
+
+
+_ODF_STYLE = "{urn:oasis:names:tc:opendocument:xmlns:style:1.0}"
+_ODF_FO = "{urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0}"
+
+
+def _odf_format(tp, pp):
+    """Inline-теги и CSS из объединённых свойств ODF-стиля."""
+    tags, css = [], []
+    if tp.get(_ODF_FO + "font-weight") in ("bold", "600", "700", "800", "900"):
+        tags.append("b")
+    if tp.get(_ODF_FO + "font-style") == "italic":
+        tags.append("i")
+    if (tp.get(_ODF_STYLE + "text-underline-style") or
+            tp.get(_ODF_FO + "text-underline-style")) not in (None, "none"):
+        tags.append("u")
+    if (tp.get(_ODF_STYLE + "text-line-through-style") or
+            tp.get(_ODF_FO + "text-line-through-style")) not in (None, "none"):
+        tags.append("s")
+    if tp.get(_ODF_FO + "color"):
+        css.append("color:" + tp[_ODF_FO + "color"])
+    if tp.get(_ODF_FO + "font-size"):
+        css.append("font-size:" + tp[_ODF_FO + "font-size"])
+    if tp.get(_ODF_FO + "font-family"):
+        css.append("font-family:" + tp[_ODF_FO + "font-family"])
+    if tp.get(_ODF_FO + "background-color") not in (None, "transparent"):
+        css.append("background-color:" + tp[_ODF_FO + "background-color"])
+    pos = tp.get(_ODF_STYLE + "text-position", "")
+    if pos.startswith("super"):
+        tags.append("sup")
+    elif pos.startswith("sub"):
+        tags.append("sub")
+    if pp.get(_ODF_FO + "text-align"):
+        css.append("text-align:" + pp[_ODF_FO + "text-align"])
+    opens, closes = [], []
+    if css:
+        opens.append(f'<span style="{html.escape(";".join(css), True)}">')
+    for t in tags:
+        opens.append(f"<{t}>")
+    for t in reversed(tags):
+        closes.append(f"</{t}>")
+    if css:
+        closes.append("</span>")
+    return "".join(opens), "".join(closes), ";".join(css)
+
+
+def _odf_styles(roots):
+    """Собрать ODF-стили с наследованием по parent-style-name."""
+    raw = {}
+    for root in roots:
+        for st in root.iter():
+            if ln(st.tag) != "style":
+                continue
+            name = st.get(_ODF_STYLE + "name")
+            if not name:
+                continue
+            entry = raw.setdefault(name, {"parent": "", "tp": {}, "pp": {}})
+            parent = st.get(_ODF_STYLE + "parent-style-name")
+            if parent:
+                entry["parent"] = parent
+            tp = next((c for c in st if ln(c.tag) == "text-properties"), None)
+            pp = next((c for c in st if ln(c.tag) == "paragraph-properties"), None)
+            if tp is not None:
+                entry["tp"].update(tp.attrib)
+            if pp is not None:
+                entry["pp"].update(pp.attrib)
+    resolved = {}
+
+    def resolve(name, seen=()):
+        if name in resolved:
+            return resolved[name]
+        if name in seen or name not in raw:
+            return {"tp": {}, "pp": {}}
+        parent = raw[name]["parent"]
+        base = resolve(parent, seen + (name,)) if parent else {"tp": {}, "pp": {}}
+        tp = dict(base["tp"]); tp.update(raw[name]["tp"])
+        pp = dict(base["pp"]); pp.update(raw[name]["pp"])
+        resolved[name] = {"tp": tp, "pp": pp}
+        return resolved[name]
+
+    return {name: _odf_format(resolve(name)["tp"], resolve(name)["pp"]) for name in raw}
 
 
 # ───────────────────────── HTML → подмножество Qt rich text ─────────────────────────
@@ -964,10 +1055,65 @@ class Docx(Parts):
                 sid = st.get(W + "styleId")
                 if not sid:
                     continue
-                styles[sid] = (next((c for c in st if ln(c.tag) == "rPr"), None),
-                               next((c for c in st if ln(c.tag) == "pPr"), None))
+                nm = next((c for c in st if ln(c.tag) == "name"), None)
+                based = next((c for c in st if ln(c.tag) == "basedOn"), None)
+                styles[sid] = {
+                    "name": (nm.get(W + "val") if nm is not None else sid) or sid,
+                    "based": based.get(W + "val") if based is not None else "",
+                    "rpr": next((c for c in st if ln(c.tag) == "rPr"), None),
+                    "ppr": next((c for c in st if ln(c.tag) == "pPr"), None),
+                }
         except Exception:
             pass
+
+        def style_chain(sid):
+            seen = set()
+            while sid and sid not in seen and sid in styles:
+                seen.add(sid)
+                yield sid
+                sid = styles[sid]["based"]
+
+        def merge_elems(*groups):
+            merged, order = {}, []
+            for group in groups:
+                for c in group or []:
+                    t = ln(c.tag)
+                    if t not in merged:
+                        order.append(t)
+                    merged[t] = c
+            return [merged[t] for t in order]
+
+        def style_rpr(sid):
+            groups = [list(styles[s]["rpr"]) if styles[s]["rpr"] is not None else []
+                      for s in reversed(list(style_chain(sid)))]
+            return merge_elems(*groups)
+
+        def style_ppr(sid):
+            groups = [list(styles[s]["ppr"]) if styles[s]["ppr"] is not None else []
+                      for s in reversed(list(style_chain(sid)))]
+            return merge_elems(*groups)
+
+        def heading_level(sid, ppr):
+            names = []
+            for s in style_chain(sid):
+                names.append(styles[s]["name"] or "")
+                names.append(s)
+            if sid and sid not in names:
+                names.append(sid)
+            for name in names:
+                name = name.lower()
+                m = re.search(r"(?:heading|заголовок|title|название)\s*(\d)", name)
+                if m:
+                    return min(6, int(m.group(1)))
+                if "title" in name or "название" in name:
+                    return 1
+            lvl = next((c for c in ppr if ln(c.tag) == "outlineLvl"), None)
+            if lvl is not None:
+                try:
+                    return min(6, int(lvl.get(W + "val")) + 1)
+                except (TypeError, ValueError):
+                    pass
+            return 0
 
         doc = ET.fromstring(self.z.read("word/document.xml"))
         body = next(e for e in doc if ln(e.tag) == "body")
@@ -977,30 +1123,38 @@ class Docx(Parts):
             nonlocal pos
             out.append(s); pos += txtlen + (1 if block else 0)
 
-        def rpr_tags(rpr):
+        def rpr_tags(items):
             tags, css = [], []
-            if rpr is None:
-                return "", ""
-            for c in rpr:
+            for c in items or []:
                 t, val = ln(c.tag), c.get(W + "val")
-                if t == "b" and val not in ("0", "false"):
-                    tags.append("b")
-                elif t == "i" and val not in ("0", "false"):
-                    tags.append("i")
-                elif t == "u" and val not in ("none", "0"):
-                    tags.append("u")
-                elif t == "strike" and val not in ("0", "false"):
-                    tags.append("s")
+                if t == "b":
+                    if val not in ("0", "false", "off"):
+                        tags.append("b")
+                elif t == "i":
+                    if val not in ("0", "false", "off"):
+                        tags.append("i")
+                elif t == "u":
+                    if val not in ("none", "0", "off"):
+                        tags.append("u")
+                elif t == "strike":
+                    if val not in ("0", "false", "off"):
+                        tags.append("s")
                 elif t == "vertAlign":
-                    if val == "superscript": tags.append("sup")
-                    elif val == "subscript": tags.append("sub")
-                elif t == "color" and val:
+                    if val == "superscript":
+                        tags.append("sup")
+                    elif val == "subscript":
+                        tags.append("sub")
+                elif t == "color" and val and val.lower() != "auto":
                     css.append("color:#" + re.sub(r"[^0-9a-fA-F]", "", val)[:6])
                 elif t == "sz" and val:
                     try:
                         css.append(f"font-size:{int(val) / 2:.0f}pt")
                     except ValueError:
                         pass
+                elif t == "rFonts":
+                    face = c.get(W + "ascii") or c.get(W + "hAnsi")
+                    if face:
+                        css.append("font-family:'" + face.replace("'", "") + "'")
                 elif t in ("highlight", "shd"):
                     fill = re.sub(r"[^0-9a-fA-F]", "", val or c.get(W + "fill") or "")
                     if fill:
@@ -1008,16 +1162,16 @@ class Docx(Parts):
             opens, closes = [], []
             if css:
                 opens.append(f'<span style="{html.escape(";".join(css), True)}">')
-                closes.append("</span>")
             for t in tags:
                 opens.append(f"<{t}>")
+            for t in reversed(tags):
                 closes.append(f"</{t}>")
-            return "".join(opens), "".join(reversed(closes))
+            if css:
+                closes.append("</span>")
+            return "".join(opens), "".join(closes)
 
         def pstyle(ppr):
             css = []
-            if ppr is None:
-                return ""
             jc = next((c for c in ppr if ln(c.tag) == "jc"), None)
             if jc is not None and jc.get(W + "val") in ("center", "right", "both"):
                 v = jc.get(W + "val")
@@ -1027,28 +1181,45 @@ class Docx(Parts):
                 for key, prop in (("before", "margin-top"), ("after", "margin-bottom")):
                     val = sp.get(W + key)
                     if val:
-                        try: css.append(f"{prop}:{int(val) / 20:.0f}pt")
-                        except ValueError: pass
+                        try:
+                            css.append(f"{prop}:{int(val) / 20:.0f}pt")
+                        except ValueError:
+                            pass
             ind = next((c for c in ppr if ln(c.tag) == "ind"), None)
-            if ind is not None and ind.get(W + "left"):
-                try: css.append(f"margin-left:{int(ind.get(W + 'left')) / 20:.0f}pt")
-                except ValueError: pass
+            if ind is not None:
+                left = ind.get(W + "left") or ind.get(W + "start")
+                if left:
+                    try:
+                        css.append(f"margin-left:{int(left) / 20:.0f}pt")
+                    except ValueError:
+                        pass
+                first = ind.get(W + "firstLine")
+                if first:
+                    try:
+                        css.append(f"text-indent:{int(first) / 20:.0f}pt")
+                    except ValueError:
+                        pass
             return f' style="{html.escape(";".join(css), True)}"' if css else ""
 
         def list_id(ppr):
-            if ppr is None:
-                return None
             numpr = next((c for c in ppr if ln(c.tag) == "numPr"), None)
             if numpr is None:
                 return None
             num = next((c for c in numpr if ln(c.tag) == "numId"), None)
             return num.get(W + "val") if num is not None else "0"
 
-        def run(r, extra_rpr=None):
+        def run(r, para_style=""):
             rpr = next((c for c in r if ln(c.tag) == "rPr"), None)
-            base_open, base_close = rpr_tags(extra_rpr)
-            open_tags, close_tags = rpr_tags(rpr)
-            emit(base_open + open_tags)
+            if rpr is not None and any(
+                    ln(c.tag) in ("vanish", "webHidden") and c.get(W + "val") not in ("0", "false", "off")
+                    for c in rpr):
+                return
+            rstyle = next((c for c in rpr if ln(c.tag) == "rStyle"), None) if rpr is not None else None
+            char_style = rstyle.get(W + "val") if rstyle is not None else ""
+            items = merge_elems(style_rpr(para_style), style_rpr(char_style),
+                                list(rpr) if rpr is not None else [])
+            open_tags, close_tags = rpr_tags(items)
+            emit(open_tags)
             extent = next((c for c in r.iter() if ln(c.tag) == "extent"), None)
             iw = ih = 0
             if extent is not None:
@@ -1066,6 +1237,10 @@ class Docx(Parts):
                     emit("<br/><br/>" if c.get(W + "type") == "page" else "<br/>", 1)
                 elif t == "tab":
                     emit("    ", 4)
+                elif t == "noBreakHyphen":
+                    emit("‑", 1)
+                elif t == "softHyphen":
+                    emit("", 0)
                 elif t == "blip":
                     rid = c.get(REL + "embed")
                     tgt = rels.get(rid, "")
@@ -1075,64 +1250,81 @@ class Docx(Parts):
                             if not tgt.startswith("word/") else tgt
                         size = f' width="{iw}" height="{ih}"' if iw and ih else ""
                         emit(f'<img src="z:{html.escape(zpath, True)}"{size}/>', 1)
-            emit(close_tags + base_close)
+            emit(close_tags)
+
+        def emit_runs(container, para_style):
+            for c in container:
+                t = ln(c.tag)
+                if t == "r":
+                    run(c, para_style)
+                elif t == "hyperlink":
+                    href = rels.get(c.get(REL + "id"), "")
+                    if href:
+                        emit(f'<a href="ext:{html.escape(href, True)}">')
+                    emit_runs(c, para_style)
+                    if href:
+                        emit("</a>")
+                elif t in ("ins", "smartTag", "sdt", "sdtContent", "fldSimple", "customXml"):
+                    emit_runs(c, para_style)
 
         cur_list = None
+
+        def emit_para(el):
+            nonlocal cur_list
+            direct = next((c for c in el if ln(c.tag) == "pPr"), None)
+            style = ""
+            if direct is not None:
+                ps = next((c for c in direct if ln(c.tag) == "pStyle"), None)
+                style = ps.get(W + "val", "") if ps is not None else ""
+            ppr = merge_elems(style_ppr(style), list(direct) if direct is not None else [])
+            lvl = heading_level(style, ppr)
+            lid = list_id(ppr)
+            if lid != cur_list:
+                if cur_list is not None:
+                    emit("</ul>")
+                if lid is not None:
+                    emit("<ul>")
+                cur_list = lid
+            tag = f"h{lvl}" if lvl else ("li" if lid is not None else "p")
+            emit(f"<{tag}{pstyle(ppr)}>")
+            emit_runs(el, style)
+            emit(f"</{tag}>", block=True)
+
+        def emit_table(tbl):
+            nonlocal cur_list
+            outer_list = cur_list
+            cur_list = None
+            emit('<table border="0" cellpadding="4" cellspacing="0">')
+            for tr in tbl:
+                if ln(tr.tag) != "tr":
+                    continue
+                emit("<tr>")
+                for tc in tr:
+                    if ln(tc.tag) != "tc":
+                        continue
+                    emit("<td>")
+                    for child in tc:
+                        if ln(child.tag) == "p":
+                            emit_para(child)
+                        elif ln(child.tag) == "tbl":
+                            emit_table(child)
+                    if cur_list is not None:
+                        emit("</ul>")
+                        cur_list = None
+                    emit("</td>")
+                emit("</tr>")
+            emit("</table>")
+            cur_list = outer_list
+
         for el in body:
             t = ln(el.tag)
             if t == "p":
-                ppr = next((c for c in el if ln(c.tag) == "pPr"), None)
-                style = ""
-                if ppr is not None:
-                    ps = next((c for c in ppr if ln(c.tag) == "pStyle"), None)
-                    style = ps.get(W + "val", "") if ps is not None else ""
-                lvl = 0
-                m = re.search(r"(?:Heading|Заголовок|Title|Название)\s*(\d)", style or "", re.I)
-                if m: lvl = min(6, int(m.group(1)))
-                elif style and re.search(r"(Title|Название)", style, re.I): lvl = 1
-                lid = list_id(ppr)
-                if lid != cur_list:
-                    if cur_list is not None: emit("</ul>")
-                    if lid is not None: emit("<ul>")
-                    cur_list = lid
-                style_rpr = styles.get(style, (None, None))[0]
-                tag = f"h{lvl}" if lvl else ("li" if lid is not None else "p")
-                emit(f"<{tag}{pstyle(ppr)}>")
-                for c in el:
-                    if ln(c.tag) == "r":
-                        run(c, style_rpr)
-                    elif ln(c.tag) == "hyperlink":
-                        href = rels.get(c.get(REL + "id"), "")
-                        if href: emit(f'<a href="ext:{html.escape(href, True)}">')
-                        for r in c:
-                            if ln(r.tag) == "r": run(r, style_rpr)
-                        if href: emit("</a>")
-                    elif ln(c.tag) in ("ins", "smartTag", "sdt"):
-                        for r in c.iter():
-                            if ln(r.tag) == "r": run(r, style_rpr)
-                emit(f"</{tag}>", block=True)
+                emit_para(el)
             elif t == "tbl":
-                if cur_list is not None: emit("</ul>"); cur_list = None
-                emit('<table border="0" cellpadding="4" cellspacing="0">')
-                for tr in el:
-                    if ln(tr.tag) != "tr": continue
-                    emit("<tr>")
-                    for tc in tr:
-                        if ln(tc.tag) != "tc": continue
-                        emit("<td>")
-                        for p in tc:
-                            if ln(p.tag) == "p":
-                                pp = next((c for c in p if ln(c.tag) == "pPr"), None)
-                                st = ""
-                                if pp is not None:
-                                    ps = next((c for c in pp if ln(c.tag) == "pStyle"), None)
-                                    st = ps.get(W + "val", "") if ps is not None else ""
-                                srp = styles.get(st, (None, None))[0]
-                                for r in p:
-                                    if ln(r.tag) == "r": run(r, srp)
-                        emit("</td>", block=True)
-                    emit("</tr>")
-                emit("</table>")
+                if cur_list is not None:
+                    emit("</ul>")
+                    cur_list = None
+                emit_table(el)
         if cur_list is not None:
             emit("</ul>")
         h = "".join(out)
@@ -1154,68 +1346,111 @@ class Odt(Parts):
         super().__init__()
         self.z = zipfile.ZipFile(path)
         root = ET.fromstring(self.z.read("content.xml"))
-        styles = {}
-        for st in root.iter():
-            if ln(st.tag) == "style" and st.get("{urn:oasis:names:tc:opendocument:xmlns:style:1.0}name"):
-                nm = st.get("{urn:oasis:names:tc:opendocument:xmlns:style:1.0}name")
-                props = next((c for c in st if ln(c.tag) == "text-properties"), None)
-                f = ""
-                if props is not None:
-                    fo = "{urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0}"
-                    if props.get(fo + "font-weight") == "bold": f += "b"
-                    if props.get(fo + "font-style") == "italic": f += "i"
-                styles[nm] = f
+        tns = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+        xlink = "{http://www.w3.org/1999/xlink}"
+
+        roots = [root]
+        try:
+            roots.append(ET.fromstring(self.z.read("styles.xml")))
+        except Exception:
+            pass
+        styles = _odf_styles(roots)
+
         out = []
-        def walk(el):
-            t = ln(el.tag)
-            if t in ("p", "h"):
-                lvl = int(el.get("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}outline-level") or 0) if t == "h" else 0
-                tag = f"h{min(6,max(1,lvl))}" if lvl else "p"
-                out.append(f"<{tag}>"); inline(el); out.append(f"</{tag}>")
-            elif t in ("list", "list-item"):
-                out.append("<ul>" if t == "list" else "<li>")
-                for c in el: walk(c)
-                out.append("</ul>" if t == "list" else "</li>")
-            elif t == "table":
-                out.append('<table border="0" cellpadding="4">')
-                for c in el: walk(c)
-                out.append("</table>")
-            elif t == "table-row":
-                out.append("<tr>")
-                for c in el: walk(c)
-                out.append("</tr>")
-            elif t == "table-cell":
-                out.append("<td>")
-                for c in el: walk(c)
-                out.append("</td>")
-            else:
-                if el.text: out.append(html.escape(el.text))
-                for c in el:
-                    walk(c)
-                    if c.tail: out.append(html.escape(c.tail))
+
         def inline(el):
-            if el.text: out.append(html.escape(el.text))
+            if el.text:
+                out.append(html.escape(el.text))
             for c in el:
                 t = ln(c.tag)
                 if t == "span":
-                    f = styles.get(c.get("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name", ""), "")
-                    for x in f: out.append(f"<{x}>")
+                    op, cl, css = styles.get(c.get(tns + "style-name"), ("", "", ""))
+                    style = f' style="{html.escape(css, True)}"' if css else ""
+                    out.append(f"<span{style}>{op}")
                     inline(c)
-                    for x in reversed(f): out.append(f"</{x}>")
-                elif t == "line-break": out.append("<br/>")
-                elif t == "tab": out.append("    ")
-                elif t == "s": out.append(" " * int(c.get("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}c") or 1))
+                    out.append(f"{cl}</span>")
+                elif t == "line-break":
+                    out.append("<br/>")
+                elif t == "tab":
+                    out.append("    ")
+                elif t == "s":
+                    out.append(" " * int(c.get(tns + "c") or 1))
                 elif t == "image":
-                    href = c.get("{http://www.w3.org/1999/xlink}href", "")
-                    if href: out.append(f'<img src="z:{href}"/>')
+                    href = c.get(xlink + "href", "")
+                    if href:
+                        out.append(f'<img src="z:{html.escape(href, True)}"/>')
                 elif t == "a":
-                    href = c.get("{http://www.w3.org/1999/xlink}href", "")
-                    out.append(f'<a href="ext:{html.escape(href, True)}">'); inline(c); out.append("</a>")
+                    href = c.get(xlink + "href", "")
+                    out.append(f'<a href="ext:{html.escape(href, True)}">')
+                    inline(c)
+                    out.append("</a>")
+                elif t in ("note", "annotation", "bookmark", "bookmark-start",
+                           "bookmark-end", "soft-page-break"):
+                    pass
                 else:
                     inline(c)
-                if c.tail: out.append(html.escape(c.tail))
+                if c.tail:
+                    out.append(html.escape(c.tail))
+
+        def walk(el):
+            t = ln(el.tag)
+            if t == "list":
+                out.append("<ul>")
+                for c in el:
+                    walk(c)
+                out.append("</ul>")
+            elif t == "list-item":
+                out.append("<li>")
+                for c in el:
+                    if ln(c.tag) in ("p", "h"):
+                        inline(c)
+                    else:
+                        walk(c)
+                out.append("</li>")
+            elif t in ("p", "h"):
+                op, cl, css = styles.get(el.get(tns + "style-name"), ("", "", ""))
+                style = f' style="{html.escape(css, True)}"' if css else ""
+                if t == "h":
+                    try:
+                        lvl = int(el.get(tns + "outline-level") or 1)
+                    except ValueError:
+                        lvl = 1
+                    tag = f"h{min(6, max(1, lvl))}"
+                else:
+                    tag = "p"
+                out.append(f"<{tag}{style}>{op}")
+                inline(el)
+                out.append(f"{cl}</{tag}>")
+            elif t == "table":
+                out.append('<table border="0" cellpadding="4">')
+                for c in el:
+                    walk(c)
+                out.append("</table>")
+            elif t == "table-row":
+                out.append("<tr>")
+                for c in el:
+                    walk(c)
+                out.append("</tr>")
+            elif t == "table-cell":
+                out.append("<td>")
+                for c in el:
+                    walk(c)
+                out.append("</td>")
+            elif t == "image":
+                href = el.get(xlink + "href", "")
+                if href:
+                    out.append(f'<img src="z:{html.escape(href, True)}"/>')
+            else:
+                if el.text:
+                    out.append(html.escape(el.text))
+                for c in el:
+                    walk(c)
+                    if c.tail:
+                        out.append(html.escape(c.tail))
+
         text = next(e for e in root.iter() if ln(e.tag) == "text")
-        for c in text: walk(c)
+        for c in text:
+            walk(c)
         h = "".join(out)
         self.parts, _ = split_html(h, {}, [])
         self.meta.title = Path(path).stem
@@ -1510,10 +1745,27 @@ def read_meta(path):
                 return m, "fb2"
         except Exception:
             pass
-    s = open_source(path)
-    m = s.meta
-    s.close()
+    _meta_state.quick = True
+    _meta_state.skip_cover = True
+    s = None
+    try:
+        s = open_source(path)
+        m = s.meta
+    finally:
+        if s is not None:
+            s.close()
+        _meta_state.quick = False
+        _meta_state.skip_cover = False
     return m, ext.lstrip(".")
+
+
+def open_source_no_cover(path):
+    """Открыть книгу без генерации обложки: она нужна только библиотеке."""
+    _meta_state.skip_cover = True
+    try:
+        return open_source(path)
+    finally:
+        _meta_state.skip_cover = False
 
 # ══════════ Совместимость Qt6 и качество рендера ══════════
 from common import PDF_LOCK as _PDF_LOCK
@@ -1582,8 +1834,29 @@ Pdf.text = _pdf_text
 Pdf.__init__ = _pdf_init(Pdf.__init__)
 
 
+def _qt_app():
+    try:
+        from PySide6.QtWidgets import QApplication
+        return QApplication.instance()
+    except Exception:
+        return None
+
+
+def _qt_main_thread():
+    app = _qt_app()
+    if app is None:
+        return False
+    try:
+        from PySide6.QtCore import QThread
+        return QThread.currentThread() is app.thread()
+    except Exception:
+        return False
+
+
 def _render_pdf_cover(pdf_path):
     """Снять PNG с первой страницы настоящего PDF."""
+    if _qt_app() is None:
+        return b""
     try:
         from PySide6.QtCore import QSize, QByteArray, QBuffer, QIODevice
         from PySide6.QtPdf import QPdfDocument
@@ -1602,6 +1875,8 @@ def _render_pdf_cover(pdf_path):
 
 def _first_page_cover(src, path, title=""):
     """Обложка = титульная/первая страница, а не первая попавшаяся картинка."""
+    if _skip_cover():
+        return b""
     from common import CACHE
     try:
         stat = Path(path).stat()
@@ -1614,6 +1889,9 @@ def _first_page_cover(src, path, title=""):
                 return data
     except Exception:
         pass
+
+    if not _qt_main_thread():
+        return b""
 
     # Fallback без внешних утилит: собираем титул из первого фрагмента текста.
     tmp = None
@@ -1699,30 +1977,81 @@ class Presentation(Parts):
         else:
             self._pptx()
         self.meta.title = self.meta.title or _P(path).stem
+        if not self.parts:
+            self.parts.append((self.meta.title,
+                               f"<p>{html.escape(self.meta.title)}</p>", {}))
         self.finalize()
 
     @staticmethod
     def _pptx_run(r):
         rpr = next((c for c in r if ln(c.tag) == "rPr"), None)
-        opens, closes, css = [], [], []
+        tags, css = [], []
         if rpr is not None:
-            for attr, tag in (("b", "b"), ("i", "i"), ("u", "u")):
-                if rpr.get(attr) in ("1", "true", "sng"):
-                    opens.append(f"<{tag}>"); closes.append(f"</{tag}>")
+            if rpr.get("b") in ("1", "true", "on"):
+                tags.append("b")
+            if rpr.get("i") in ("1", "true", "on"):
+                tags.append("i")
+            if rpr.get("u") not in (None, "none", "0"):
+                tags.append("u")
+            if rpr.get("strike") not in (None, "noStrike", "0"):
+                tags.append("s")
+            base = rpr.get("baseline")
+            if base:
+                try:
+                    delta = int(base)
+                    if delta:
+                        tags.append("sup" if delta > 0 else "sub")
+                except ValueError:
+                    pass
             if rpr.get("sz"):
                 try:
                     css.append(f"font-size:{int(rpr.get('sz')) / 100:.0f}pt")
                 except ValueError:
                     pass
-            for c in rpr.iter():
-                if ln(c.tag) == "srgbClr" and c.get("val"):
-                    css.append("color:#" + re.sub(r"[^0-9a-fA-F]", "", c.get("val"))[:6])
-                    break
+            for c in rpr:
+                t = ln(c.tag)
+                if t == "solidFill":
+                    color = next((x.get("val") for x in c
+                                  if ln(x.tag) == "srgbClr" and x.get("val")), None)
+                    if color:
+                        css.append("color:#" + re.sub(r"[^0-9a-fA-F]", "", color)[:6])
+                elif t == "latin" and c.get("typeface"):
+                    css.append("font-family:'" + c.get("typeface").replace("'", "") + "'")
+        opens, closes = [], []
         if css:
-            opens.insert(0, f'<span style="{html.escape(";".join(css), True)}">')
+            opens.append(f'<span style="{html.escape(";".join(css), True)}">')
+        for t in tags:
+            opens.append(f"<{t}>")
+        for t in reversed(tags):
+            closes.append(f"</{t}>")
+        if css:
             closes.append("</span>")
         text = "".join(t.text or "" for t in r.iter() if ln(t.tag) == "t")
-        return "".join(opens) + html.escape(text) + "".join(reversed(closes))
+        return "".join(opens) + html.escape(text) + "".join(closes)
+
+    @staticmethod
+    def _pptx_plain(p):
+        return "".join(t.text or "" for t in p.iter() if ln(t.tag) == "t").strip()
+
+    def _pptx_para(self, p):
+        ppr = next((c for c in p if ln(c.tag) == "pPr"), None)
+        css = []
+        if ppr is not None:
+            algn = ppr.get("algn")
+            if algn in ("ctr", "r", "just", "justLow"):
+                css.append("text-align:" + ("center" if algn == "ctr" else
+                                            "right" if algn == "r" else "justify"))
+        parts = []
+        for c in p:
+            t = ln(c.tag)
+            if t in ("r", "fld"):
+                parts.append(self._pptx_run(c))
+            elif t == "br":
+                parts.append("<br/>")
+        if ppr is not None and any(ln(c.tag) in ("buChar", "buAutoNum") for c in ppr):
+            parts.insert(0, "• ")
+        style = f' style="{";".join(css)}"' if css else ""
+        return style, "".join(parts)
 
     def _slide(self, number, title, blocks, images, notes="", rich=False, title_html=None):
         html_parts = [title_html or f"<h1>{html.escape(title or f'Слайд {number}')}</h1>"]
@@ -1767,23 +2096,37 @@ class Presentation(Parts):
                         srels[r.get("Id")] = r.get("Target", "")
                 except Exception:
                     pass
-            blocks, block_text = [], []
-            for p in root.iter():
-                if ln(p.tag) != "p":
+            items = []
+            for sp in root.iter():
+                if ln(sp.tag) != "sp":
                     continue
-                plain = "".join(t.text or "" for t in p.iter() if ln(t.tag) == "t").strip()
-                if not plain:
+                ph = next((e for e in sp.iter() if ln(e.tag) == "ph"), None)
+                typ = (ph.get("type") if ph is not None else "") or "body"
+                for p in sp.iter():
+                    if ln(p.tag) == "p" and self._pptx_plain(p):
+                        items.append((typ in ("title", "ctrTitle"), p))
+            if not items:
+                for p in root.iter():
+                    if ln(p.tag) == "p" and self._pptx_plain(p):
+                        items.append((False, p))
+
+            blocks = []
+            title_html = None
+            title_text = ""
+            for is_title, p in items:
+                style, runs = self._pptx_para(p)
+                if not runs.strip():
                     continue
-                block_text.append(plain)
-                ppr = next((c for c in p if ln(c.tag) == "pPr"), None)
-                algn = ppr.get("algn") if ppr is not None else ""
-                style = ""
-                if algn in ("ctr", "r", "just", "justLow"):
-                    style = f' style="text-align:{"center" if algn == "ctr" else "right" if algn == "r" else "justify"}"'
-                first = len(block_text) == 1
-                tag = "h2" if first else "p"
-                runs = "".join(self._pptx_run(r) for r in p.iter() if ln(r.tag) == "r")
-                blocks.append(f"<{tag}{style}>{runs}</{tag}>")
+                if is_title and title_html is None:
+                    title_html = f"<h2{style}>{runs}</h2>"
+                    title_text = self._pptx_plain(p)
+                else:
+                    tag = "h3" if is_title else "p"
+                    blocks.append(f"<{tag}{style}>{runs}</{tag}>")
+            if title_html is None and blocks:
+                first = blocks.pop(0)
+                title_html = re.sub(r"^<p([^>]*)>", r"<h2\1>", first).replace("</p>", "</h2>")
+                title_text = plain(title_html)
             images = []
             for blip in root.iter():
                 if ln(blip.tag) != "blip":
@@ -1800,69 +2143,105 @@ class Presentation(Parts):
                     notes = " ".join(t.text or "" for t in nroot.iter() if ln(t.tag) == "t")
                 except Exception:
                     pass
-            title = block_text[0] if block_text else f"Слайд {i}"
-            self._slide(i, title, blocks[1:], images, notes, rich=True,
-                        title_html=blocks[0] if blocks else None)
+            self._slide(i, title_text or f"Слайд {i}", blocks, images, notes,
+                        rich=True, title_html=title_html)
 
     def _odp(self):
         root = ET.fromstring(self.z.read("content.xml"))
         draw = "{urn:oasis:names:tc:opendocument:xmlns:drawing:1.0}"
         xlink = "{http://www.w3.org/1999/xlink}"
         tns = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
-        sns = "{urn:oasis:names:tc:opendocument:xmlns:style:1.0}"
-        fns = "{urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0}"
 
-        styles = {}
         roots = [root]
         try:
             roots.append(ET.fromstring(self.z.read("styles.xml")))
         except Exception:
             pass
-        for sr in roots:
-            for st in sr.iter():
-                if ln(st.tag) != "style":
-                    continue
-                name = st.get(sns + "name")
-                if not name:
-                    continue
-                opens, closes, css = [], [], []
-                tp = next((c for c in st if ln(c.tag) == "text-properties"), None)
-                pp = next((c for c in st if ln(c.tag) == "paragraph-properties"), None)
-                if tp is not None:
-                    if tp.get(fns + "font-weight") == "bold":
-                        opens.append("<b>"); closes.append("</b>")
-                    if tp.get(fns + "font-style") == "italic":
-                        opens.append("<i>"); closes.append("</i>")
-                    if tp.get(fns + "color"):
-                        css.append("color:" + tp.get(fns + "color"))
-                    if tp.get(fns + "font-size"):
-                        css.append("font-size:" + tp.get(fns + "font-size"))
-                if pp is not None and pp.get(fns + "text-align"):
-                    css.append("text-align:" + pp.get(fns + "text-align"))
-                if css:
-                    opens.insert(0, f'<span style="{html.escape(";".join(css), True)}">')
-                    closes.append("</span>")
-                styles[name] = ("".join(opens), "".join(reversed(closes)))
+        styles = _odf_styles(roots)
+
+        def inline(el):
+            out = []
+            if el.text:
+                out.append(html.escape(el.text))
+            for c in el:
+                t = ln(c.tag)
+                if t == "span":
+                    op, cl, css = styles.get(c.get(tns + "style-name"), ("", "", ""))
+                    style = f' style="{html.escape(css, True)}"' if css else ""
+                    out.append(f"<span{style}>{op}{inline(c)}{cl}</span>")
+                elif t == "line-break":
+                    out.append("<br/>")
+                elif t == "tab":
+                    out.append("    ")
+                elif t == "s":
+                    out.append(" " * int(c.get(tns + "c") or 1))
+                elif t == "a":
+                    href = c.get(xlink + "href", "")
+                    out.append(f'<a href="ext:{html.escape(href, True)}">{inline(c)}</a>')
+                elif t == "image":
+                    href = c.get(xlink + "href", "")
+                    if href:
+                        out.append(f'<img src="z:{html.escape(href, True)}"/>')
+                elif t in ("note", "annotation", "tracked-changes", "soft-page-break"):
+                    pass
+                else:
+                    out.append(inline(c))
+                if c.tail:
+                    out.append(html.escape(c.tail))
+            return "".join(out)
 
         pages = [e for e in root.iter() if ln(e.tag) == "page"]
         if not pages:
             return
         for i, page in enumerate(pages, 1):
-            title = page.get(draw + "name") or f"Слайд {i}"
             blocks, images = [], []
-            for el in page.iter():
+            title_text = ""
+
+            def walk(el):
+                nonlocal title_text
                 t = ln(el.tag)
-                if t in ("p", "h"):
-                    text = "".join(el.itertext()).strip()
-                    if not text:
-                        continue
-                    op, cl = styles.get(el.get(tns + "style-name"), ("", ""))
-                    tag = "h2" if t == "h" or not blocks else "p"
-                    blocks.append(f"<{tag}>{op}{html.escape(text)}{cl}</{tag}>")
+                if t == "list":
+                    blocks.append("<ul>")
+                    for c in el:
+                        walk(c)
+                    blocks.append("</ul>")
+                elif t == "list-item":
+                    blocks.append("<li>")
+                    for c in el:
+                        if ln(c.tag) in ("p", "h"):
+                            blocks.append(inline(c))
+                        else:
+                            walk(c)
+                    blocks.append("</li>")
+                elif t in ("p", "h"):
+                    content = inline(el)
+                    if not plain(content).strip():
+                        return
+                    op, cl, css = styles.get(el.get(tns + "style-name"), ("", "", ""))
+                    style = f' style="{html.escape(css, True)}"' if css else ""
+                    if t == "h":
+                        try:
+                            lvl = int(el.get(tns + "outline-level") or 1)
+                        except ValueError:
+                            lvl = 1
+                        tag = f"h{min(6, max(1, lvl))}"
+                    else:
+                        tag = "p"
+                    if not title_text:
+                        title_text = plain(content).strip()
+                    blocks.append(f"<{tag}{style}>{op}{content}{cl}</{tag}>")
                 elif t == "image":
                     href = el.get(xlink + "href", "")
                     if href:
                         images.append(href)
+                else:
+                    for c in el:
+                        walk(c)
+
+            walk(page)
+            title = page.get(draw + "name") or title_text or f"Слайд {i}"
+            if re.fullmatch(r"(page|Slide|Слайд)?\d*", title or "", re.I):
+                title = title_text or f"Слайд {i}"
             self._slide(i, title, blocks, images, rich=True)
 
     def resource(self, key):
@@ -1893,24 +2272,44 @@ class OfficePresentation(Presentation):
         raw = _P(path).read_bytes()
         if raw[:2] == b"PK":
             super().__init__(path)
-            self.meta.title = self.meta.title or _P(path).stem
+            self._title_from_slide(path, path)
             return
-        key = _re.sub(r"\W", "_", _P(path).stem)[:40] + f"_{int(_P(path).stat().st_mtime)}"
+        key = hashlib.md5(str(_P(path).resolve()).encode()).hexdigest()[:10] + f"_{int(_P(path).stat().st_mtime)}"
         out = CACHE / ("conv_ppt_" + key)
-        pptx = _fx.office_to_pptx(path, out)
+        pptx = None if _quick_meta() else _fx.office_to_pptx(path, out)
         if pptx:
             super().__init__(pptx)
-            self.meta.title = self.meta.title or _P(path).stem
+            self._title_from_slide(path, pptx)
+            return
+
+        slides = _fx.legacy_ppt_slides(path)
+        if slides:
+            Parts.__init__(self)
+            for i, lines in enumerate(slides, 1):
+                title = lines[0] if lines else f"Слайд {i}"
+                body = lines[1:]
+                html_parts = [f"<h1>{html.escape(title)}</h1>"]
+                html_parts += [f"<p>{html.escape(x)}</p>" for x in body if x.strip()]
+                self.parts.append((title[:90] or f"Слайд {i}", "".join(html_parts), {}))
+            self.finalize()
+            self.meta.title = self.meta.title or (slides[0][0] if slides[0] else _P(path).stem)
             return
 
         text = _fx.legacy_office_text(path)
         if not text.strip():
-            raise FormatError("PPT/PPS: не удалось извлечь текст. Установите LibreOffice "
+            raise FormatError("PPT/PPS: не удалось извлечь текст. Установите PowerPoint/LibreOffice "
                               "или пересохраните файл в .pptx")
         Parts.__init__(self)
         t = Txt(path, text)
         self.parts, self.toc, self.count = t.parts, t.toc, t.count
         self.meta.title = self.meta.title or _P(path).stem
+
+    def _title_from_slide(self, orig, source):
+        title = (self.meta.title or "").strip()
+        generic = (not title or re.match(r"^(слайд|slide)\s*\d*$", title, re.I)
+                   or title.lower() == _P(source).stem.lower())
+        if generic:
+            self.meta.title = (self.parts[0][0] if self.parts else "") or _P(orig).stem
 
     def close(self):
         if hasattr(self, "z"):
@@ -1979,20 +2378,20 @@ class OfficeDoc(Parts):
                     return
             except Exception:
                 pass
-        key = _re.sub(r"\W", "_", _P(path).stem)[:40] + f"_{int(_P(path).stat().st_mtime)}"
+        key = hashlib.md5(str(_P(path).resolve()).encode()).hexdigest()[:10] + f"_{int(_P(path).stat().st_mtime)}"
         out = CACHE / ("conv_" + key)
-        docx = _fx.office_to_docx(path, out)
+        docx = None if _quick_meta() else _fx.office_to_docx(path, out)
         if docx:
             src = Docx(docx)
             self.parts, self.meta, self.toc, self.count = src.parts, src.meta, src.toc, src.count
             self.resource = src.resource
             self.meta.title = self.meta.title or _P(path).stem
             return
-        txt = _fx.office_to_text(path)
+        txt = None if _quick_meta() else _fx.office_to_text(path)
         if not txt or not txt.strip():
             txt = _fx.legacy_office_text(path)
         if not txt or not txt.strip():
-            raise FormatError("DOC: не удалось извлечь текст. Установите LibreOffice/antiword "
+            raise FormatError("DOC: не удалось извлечь текст. Установите Word/LibreOffice/antiword "
                               "или пересохраните файл в .docx")
         t = Txt(path, txt)
         self.parts, self.meta, self.toc, self.count = t.parts, t.meta, t.toc, t.count

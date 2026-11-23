@@ -25,12 +25,12 @@ LightRead — кроссплатформенная читалка электро
 | Формат | Требование |
 |---|---|
 | DJVU | `ddjvu` из DjVuLibre |
-| DOC | `antiword`, `catdoc` или LibreOffice |
+| DOC | Microsoft Word, `antiword`, `catdoc` или LibreOffice |
 | CHM | `7z` / `7za` (на Windows — `hh.exe`) |
 | CBR/CB7/CBT, RAR | `7z` / UnRAR |
-| PPT/PPS (legacy) | LibreOffice для точного рендера; без него — встроенный текстовый fallback |
-| DOC (legacy) | LibreOffice/antiword для точного текста; без них — встроенный текстовый fallback |
-| Точная обложка DOCX/ODT/PPTX/ODP | LibreOffice или Word (иначе используется встроенный рендер титула) |
+| PPT/PPS (legacy) | Microsoft PowerPoint или LibreOffice для точного рендера; без них — встроенный текстовый fallback |
+| DOC (legacy) | Microsoft Word, LibreOffice или antiword для точного текста; без них — встроенный текстовый fallback |
+| Точная обложка DOCX/ODT/PPTX/ODP | Microsoft Office (Word/PowerPoint) или LibreOffice (иначе используется встроенный рендер титула) |
 | AZW3 / HUFF-CDIC | опциональный пакет Python `mobi` |
 
 ## Быстрый старт

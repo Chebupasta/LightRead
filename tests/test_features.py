@@ -24,10 +24,12 @@ QMessageBox.critical = staticmethod(lambda *a, **k: None)
 
 import common
 import formats
+import formats_extra
 import library as libmod
 import services
 import theming
 import ui
+import views
 from reader import Reader
 
 
@@ -182,6 +184,168 @@ class TestOfficeFormats(unittest.TestCase):
         src.close()
         self.assertEqual(formats.read_meta(str(p))[1], "odp")
 
+    def test_odt_keeps_inline_and_paragraph_formatting(self):
+        p = TMP / "format.odt"
+        content = '''<?xml version="1.0"?><office:document-content
+ xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+<office:automatic-styles>
+ <style:style style:name="P1">
+  <style:paragraph-properties fo:text-align="center"/>
+  <style:text-properties fo:font-weight="bold" fo:font-style="italic"
+   fo:color="#C00000" fo:font-size="16pt" style:text-underline-style="solid"/>
+ </style:style>
+ <style:style style:name="P2">
+  <style:text-properties fo:font-weight="normal" fo:font-style="normal"/>
+ </style:style>
+</office:automatic-styles>
+<office:body><office:text>
+ <text:p text:style-name="P1">Жирный курсив</text:p>
+ <text:p text:style-name="P2">Обычный текст</text:p>
+</office:text></office:body></office:document-content>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("content.xml", content)
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("<b>", html)
+        self.assertIn("<i>", html)
+        self.assertIn("<u>", html)
+        self.assertIn("color:#C00000", html)
+        self.assertIn("font-size:16pt", html)
+        self.assertIn("text-align:center", html)
+        self.assertIn("</u></i></b></span>", html)
+        self.assertEqual(html.count("<b>"), 1)
+        self.assertIn("Обычный текст", html)
+        src.close()
+
+    def test_pptx_does_not_invent_bold_and_italic(self):
+        p = TMP / "plain.pptx"
+        slide = '''<?xml version="1.0"?><p:sld
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+<p:sp><p:txBody><a:p><a:r><a:t>Обычный текст</a:t></a:r></a:p></p:txBody></p:sp>
+</p:spTree></p:cSld></p:sld>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("ppt/presentation.xml",
+                       "<p:presentation xmlns:p='http://schemas.openxmlformats.org/presentationml/2006/main'/>")
+            z.writestr("ppt/slides/slide1.xml", slide)
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("Обычный текст", html)
+        self.assertNotIn("<b>", html)
+        self.assertNotIn("<i>", html)
+        src.close()
+
+    def test_pptx_closes_tags_in_reverse_order(self):
+        p = TMP / "rich.pptx"
+        slide = '''<?xml version="1.0"?><p:sld
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+<p:sp><p:txBody><a:p><a:r><a:rPr b="1" i="1" sz="2400">
+<a:solidFill><a:srgbClr val="3366FF"/></a:solidFill></a:rPr><a:t>Формат</a:t></a:r></a:p>
+</p:txBody></p:sp></p:spTree></p:cSld></p:sld>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("ppt/presentation.xml",
+                       "<p:presentation xmlns:p='http://schemas.openxmlformats.org/presentationml/2006/main'/>")
+            z.writestr("ppt/slides/slide1.xml", slide)
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("<b>", html)
+        self.assertIn("<i>", html)
+        self.assertIn("font-size:24pt", html)
+        self.assertIn("color:#3366FF", html)
+        self.assertIn("</i></b></span>", html)
+        self.assertNotIn("</span></b>", html)
+        src.close()
+
+    def test_odp_closes_tags_in_reverse_order(self):
+        p = TMP / "rich.odp"
+        content = '''<?xml version="1.0"?><office:document-content
+ xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+<office:automatic-styles><style:style style:name="T1">
+<style:paragraph-properties fo:text-align="center"/>
+<style:text-properties fo:font-weight="bold" fo:font-style="italic"
+ fo:color="#C00000" fo:font-size="16pt" style:text-underline-style="solid"/>
+</style:style></office:automatic-styles>
+<office:body><office:presentation><draw:page draw:name="Титул">
+<text:p text:style-name="T1">Формат ODP</text:p></draw:page>
+</office:presentation></office:body></office:document-content>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("content.xml", content)
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("Формат ODP", html)
+        self.assertIn("<b>", html)
+        self.assertIn("<i>", html)
+        self.assertIn("<u>", html)
+        self.assertIn("text-align:center", html)
+        self.assertIn("</u></i></b></span>", html)
+        self.assertNotIn("</span></b>", html)
+        src.close()
+
+    def test_read_meta_skips_office_conversion(self):
+        p = TMP / "quick.doc"
+        p.write_bytes(b"\xd0\xcf\x11\xe0" + "Быстрый документ".encode("utf-16le"))
+        old_docx, old_pptx = formats._fx.office_to_docx, formats._fx.office_to_pptx
+
+        def boom(*args, **kwargs):
+            raise AssertionError("read_meta must not call Office COM")
+
+        formats._fx.office_to_docx = boom
+        formats._fx.office_to_pptx = boom
+        try:
+            meta, fmt = formats.read_meta(str(p))
+            self.assertEqual(fmt, "doc")
+            self.assertTrue(meta.title)
+        finally:
+            formats._fx.office_to_docx = old_docx
+            formats._fx.office_to_pptx = old_pptx
+
+    def test_open_source_no_cover_skips_pdf_conversion(self):
+        p = TMP / "nocover.docx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("word/document.xml", '''<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>Текст без обложки</w:t></w:r></w:p></w:body></w:document>''')
+        old_pdf = formats._fx.office_to_pdf
+
+        def boom(*args, **kwargs):
+            raise AssertionError("open_source_no_cover must skip PDF conversion")
+
+        formats._fx.office_to_pdf = boom
+        try:
+            src = formats.open_source_no_cover(str(p))
+            self.assertIn("Текст без обложки", src.chapter(0).html)
+            src.close()
+        finally:
+            formats._fx.office_to_pdf = old_pdf
+
+    def test_native_path_for_office_com(self):
+        if os.name != "nt":
+            self.skipTest("Windows only")
+        self.assertEqual(formats_extra._native("c:/users/a b/x.doc"),
+                         r"c:\users\a b\x.doc")
+
+    def test_invalid_converted_cache_is_rejected(self):
+        bad = TMP / "bad.docx"
+        bad.write_bytes(b"not a zip")
+        good = TMP / "good.docx"
+        with zipfile.ZipFile(good, "w") as z:
+            z.writestr("word/document.xml", "<x/>")
+        self.assertFalse(formats_extra._valid_zip(bad))
+        self.assertTrue(formats_extra._valid_zip(good))
+        pdf = TMP / "bad.pdf"
+        pdf.write_bytes(b"<html>")
+        self.assertFalse(formats_extra._valid_pdf(pdf))
+        pdf.write_bytes(b"%PDF-1.7\n")
+        self.assertTrue(formats_extra._valid_pdf(pdf))
+
     def test_legacy_doc_text_fallback(self):
         p = TMP / "legacy.doc"
         p.write_bytes(b"\xd0\xcf\x11\xe0" + "Легаси документ Ворд".encode("utf-16le"))
@@ -226,9 +390,83 @@ class TestOfficeFormats(unittest.TestCase):
         self.assertIn("Текст из повреждённого файла", src.chapter(0).html)
         src.close()
 
+    def test_docx_table_keeps_list_tags_inside_cell(self):
+        p = TMP / "table_list.docx"
+        content = '''<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:tbl><w:tr><w:tc>
+<w:p><w:pPr><w:numPr><w:numId w:val="7"/></w:numPr></w:pPr>
+<w:r><w:t>В ячейке</w:t></w:r></w:p>
+</w:tc></w:tr></w:tbl>
+<w:p><w:r><w:t>После таблицы</w:t></w:r></w:p>
+</w:body></w:document>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("word/document.xml", content)
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("<td><ul><li>В ячейке</li></ul></td>", html)
+        self.assertNotIn("</table></ul>", html)
+        src.close()
+
+    def test_pptx_baseline_zero_and_text_color(self):
+        p = TMP / "baseline.pptx"
+        slide = '''<?xml version="1.0"?><p:sld
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+<p:sp><p:txBody>
+<a:p><a:r><a:rPr baseline="0"/><a:t>Plain</a:t></a:r></a:p>
+<a:p><a:r><a:rPr><a:solidFill><a:srgbClr val="3366FF"/></a:solidFill>
+<a:ln><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln></a:rPr>
+<a:t>Color</a:t></a:r></a:p>
+</p:txBody></p:sp></p:spTree></p:cSld></p:sld>'''
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("ppt/presentation.xml",
+                       "<p:presentation xmlns:p='http://schemas.openxmlformats.org/presentationml/2006/main'/>")
+            z.writestr("ppt/slides/slide1.xml", slide)
+        src = formats.open_source(str(p))
+        html = src.chapter(0).html
+        self.assertIn("Plain", html)
+        self.assertNotIn("<sub>", html)
+        self.assertIn("color:#3366FF", html)
+        self.assertNotIn("#FF0000", html)
+        src.close()
+
+    def test_valid_zip_checks_expected_member(self):
+        p = TMP / "only_types.docx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("[Content_Types].xml", "<x/>")
+        self.assertFalse(formats_extra._valid_zip(p, "word/document.xml"))
+
     def test_presentation_extensions_registered(self):
         for ext in (".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"):
             self.assertIn(ext, formats.ALL_EXTS)
+
+
+class TestReflowFormatting(unittest.TestCase):
+    def test_restyle_reapplies_changed_settings(self):
+        from PySide6.QtCore import Qt
+        p = TMP / "restyle.txt"
+        p.write_text("Первый абзац\nВторой абзац", encoding="utf-8")
+        src = formats.open_source(str(p))
+        st = dict(common.S)
+        st.update({"align": "justify", "indent": 12, "para_space": 6})
+        view = views.ReflowView(src, st)
+        mask = int(Qt.AlignHCenter) | int(Qt.AlignRight) | int(Qt.AlignJustify)
+        try:
+            view.resize(600, 700)
+            view.load(0)
+            b = view.doc.begin()
+            self.assertEqual(int(b.blockFormat().alignment()) & mask, int(Qt.AlignJustify))
+            self.assertAlmostEqual(b.blockFormat().textIndent(), 12.0)
+
+            view.st.update({"align": "left", "indent": 0, "para_space": 0})
+            view.restyle()
+            b = view.doc.begin()
+            self.assertEqual(int(b.blockFormat().alignment()) & mask, 0)
+            self.assertAlmostEqual(b.blockFormat().textIndent(), 0.0)
+        finally:
+            view.close()
+            src.close()
 
 
 def _contrast(a, b):

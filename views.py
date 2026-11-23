@@ -286,6 +286,7 @@ class ReflowView(QWidget):
         self.pages = 1; self.total = 0.0
         self.notes = []; self.sel = None
         self._drag = None; self._text = ""; self.chap = None
+        self._base_formats = None  # исходные блоки до применения настроек чтения
         self._chap_cache = OrderedDict()  # не парсим ZIP/XML заново при возврате к главе
         self._restyle_timer = QTimer(self); self._restyle_timer.setSingleShot(True)
         self._restyle_timer.setInterval(120)
@@ -342,15 +343,13 @@ class ReflowView(QWidget):
             if len(self._chap_cache) > 12:
                 self._chap_cache.popitem(last=False)
         self.ch = ch
+        self._style_doc()
         self.doc.setHtml("<body>" + self.chap.html + "</body>")
         self._text = self.doc.toPlainText()
+        self._base_formats = None
         self.restyle(pos)
 
-    def restyle(self, pos=None):
-        if self.chap is None:
-            return
-        if pos is None:
-            pos = self.position()[1]
+    def _style_doc(self):
         st = self.st
         th = theme(st["theme"])
         f = QFont(pick_font(st["font_family"]), int(st["font_size"]))
@@ -360,30 +359,56 @@ class ReflowView(QWidget):
         self.doc.setDefaultStyleSheet(
             f"body{{color:{th['fg']};}} a{{color:{th['link']};text-decoration:none;}} "
             f"h1,h2,h3,h4,h5,h6{{color:{th['fg']};}}")
-        cur = QTextCursor(self.doc)
-        cur.select(QTextCursor.Document)
+
+    def restyle(self, pos=None):
+        if self.chap is None:
+            return
+        if pos is None:
+            pos = self.position()[1]
+        st = self.st
+        self._style_doc()
+        if self._base_formats is None:
+            self._base_formats = []
+            b0 = self.doc.begin()
+            while b0.isValid():
+                self._base_formats.append(b0.blockFormat())
+                b0 = b0.next()
         bf = QTextBlockFormat()
         # В PySide6 6.11 LineHeightTypes — enum, который нельзя привести через int().
         # Берём целое значение явно (совместимо и со старыми версиями).
         prop_height = getattr(QTextBlockFormat.ProportionalHeight, "value",
                               QTextBlockFormat.ProportionalHeight)
         bf.setLineHeight(float(st["line_spacing"]), int(prop_height))
-        bf.setTextIndent(float(st["indent"]))
-        bf.setTopMargin(float(st["para_space"]))
-        bf.setBottomMargin(0.0)
-        bf.setAlignment(Qt.AlignJustify if st["align"] == "justify" else Qt.AlignLeft)
-        cur.mergeBlockFormat(bf)
 
+        explicit_mask = int(Qt.AlignHCenter) | int(Qt.AlignRight) | int(Qt.AlignJustify)
         b = self.doc.begin()
+        idx = 0
         while b.isValid():
-            fmt = b.blockFormat()
-            if fmt.headingLevel() or b.textList() is not None:
-                fix = QTextBlockFormat()
+            cb = QTextCursor(b)
+            if idx < len(self._base_formats):
+                cb.setBlockFormat(self._base_formats[idx])
+            cb.mergeBlockFormat(bf)
+            idx += 1
+            fmt = cb.blockFormat()
+            fix = QTextBlockFormat()
+            aligned = int(fmt.alignment()) & explicit_mask
+            heading = fmt.headingLevel()
+            listed = b.textList() is not None
+            if heading or listed:
                 fix.setTextIndent(0.0)
-                fix.setAlignment(Qt.AlignLeft)
-                if fmt.headingLevel():
-                    fix.setTopMargin(16.0); fix.setBottomMargin(9.0)
-                QTextCursor(b).mergeBlockFormat(fix)
+                if not aligned:
+                    fix.setAlignment(Qt.AlignLeft)
+                if heading:
+                    fix.setTopMargin(16.0)
+                    fix.setBottomMargin(9.0)
+            else:
+                if not aligned:
+                    fix.setAlignment(Qt.AlignJustify if st["align"] == "justify" else Qt.AlignLeft)
+                if abs(fmt.textIndent()) < 0.01:
+                    fix.setTextIndent(float(st["indent"]))
+                if fmt.topMargin() < 20:
+                    fix.setTopMargin(float(st["para_space"]))
+            QTextCursor(b).mergeBlockFormat(fix)
             it = b.begin()
             while not it.atEnd():
                 fr = it.fragment(); cf = fr.charFormat()
