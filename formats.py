@@ -1,6 +1,6 @@
 """Парсеры форматов. Единая модель: Source -> Chapter(title, html, anchors)."""
 from __future__ import annotations
-import base64, bisect, gzip, hashlib, html, io, os, posixpath, re, shutil, struct, subprocess, threading, zipfile
+import base64, bisect, gzip, hashlib, html, io, os, posixpath, re, shutil, struct, subprocess, threading, weakref, zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -10,6 +10,22 @@ from urllib.parse import unquote
 from common import CACHE, S
 
 _meta_state = threading.local()
+_ZIP_REGISTRY = weakref.WeakSet()
+
+
+def _open_zip(path):
+    z = zipfile.ZipFile(path)
+    _ZIP_REGISTRY.add(z)
+    return z
+
+
+def _close_zips(path):
+    for z in list(_ZIP_REGISTRY):
+        try:
+            if str(getattr(z, "filename", "")) == str(path):
+                z.close()
+        except Exception:
+            pass
 
 
 def _quick_meta():
@@ -564,7 +580,7 @@ class HtmlFile(Parts):
 class Epub(Source):
     def __init__(self, path):
         super().__init__()
-        self.zf = zipfile.ZipFile(path)
+        self.zf = _open_zip(path)
         self.names = set(self.zf.namelist())
         self._inline = {}
         cont = ET.fromstring(self.zf.read("META-INF/container.xml"))
@@ -1030,7 +1046,7 @@ REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 class Docx(Parts):
     def __init__(self, path):
         super().__init__()
-        self.z = zipfile.ZipFile(path)
+        self.z = _open_zip(path)
         rels = {}
         try:
             for r in ET.fromstring(self.z.read("word/_rels/document.xml.rels")):
@@ -1344,7 +1360,7 @@ class Docx(Parts):
 class Odt(Parts):
     def __init__(self, path):
         super().__init__()
-        self.z = zipfile.ZipFile(path)
+        self.z = _open_zip(path)
         root = ET.fromstring(self.z.read("content.xml"))
         tns = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
         xlink = "{http://www.w3.org/1999/xlink}"
@@ -1594,7 +1610,7 @@ class Chm(Parts):
 class Cbz(Parts):
     def __init__(self, path):
         super().__init__()
-        self.z = zipfile.ZipFile(path)
+        self.z = _open_zip(path)
         imgs = sorted((n for n in self.z.namelist()
                        if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"))),
                       key=_natural_key)
@@ -1973,7 +1989,7 @@ class Presentation(Parts):
     def __init__(self, path):
         super().__init__()
         ext = _P(path).suffix.lower()
-        self.z = zipfile.ZipFile(path)
+        self.z = _open_zip(path)
         try:
             core = ET.fromstring(self.z.read("docProps/core.xml"))
             for e in core:
@@ -2416,7 +2432,7 @@ class ComicAny(Parts):
         self.z = None
         self.tmp = None
         if ext == ".cbz":
-            self.z = zipfile.ZipFile(path)
+            self.z = _open_zip(path)
             names = sorted((n for n in self.z.namelist() if n.lower().endswith(
                 (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"))), key=_natural_key)
             self._files = None
@@ -2460,7 +2476,7 @@ class Fb3(Source):
 
     def __init__(self, path):
         super().__init__()
-        self.z = zipfile.ZipFile(path)
+        self.z = _open_zip(path)
         self.bins, self.ids = {}, {}
         xmls = [n for n in self.z.namelist() if n.lower().endswith(".xml")]
         # Библиотека изображений лежит в <binary> внутри XML-частей.
@@ -2610,6 +2626,7 @@ def open_source(path):  # noqa: F811 — расширенный диспетче
                 return OfficePresentation(p)
             return _orig_open(p)
         except Exception as exc:
+            _close_zips(p)
             src = _office_text_fallback(p)
             if src is None:
                 raise exc

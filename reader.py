@@ -93,7 +93,7 @@ class TuneBar(QWidget):
             for i, it in enumerate(items):
                 c.addItem(str(it), data[i] if data else it)
             cur = st[key]
-            idx = max(0, c.findData(cur))
+            idx = c.findData(cur)
             if idx < 0:
                 idx = max(0, c.findText(str(cur)))
             c.setCurrentIndex(idx)
@@ -281,10 +281,18 @@ class Reader(QMainWindow):
         src = None
         if (self.st.get("office_pdf", S.get("office_pdf", True))
                 and Path(path).suffix.lower().lstrip(".") in OFFICE_FMTS):
-            pdf = self._office_pdf(path)
+            try:
+                pdf = self._office_pdf(path)
+            except Exception:
+                pdf = None
             if pdf:
-                src = open_source_no_cover(pdf)
-                self.exact = True
+                try:
+                    src = open_source_no_cover(pdf)
+                    self.exact = True
+                except Exception:
+                    from formats_extra import invalidate_faithful_pdf
+                    invalidate_faithful_pdf(path)
+                    src = None
         self.src = src or open_source_no_cover(path)
         self.fixed = bool(self.src.fixed)
         self.view = FixedView(self.src, self.st) if self.fixed else ReflowView(self.src, self.st)
@@ -333,22 +341,27 @@ class Reader(QMainWindow):
         cached = office_faithful_cached(path)
         if cached:
             return cached
-        dlg = QProgressDialog("Подготовка точного вида (PDF)…", "", 0, 0, self)
+        dlg = QProgressDialog("Подготовка точного вида (PDF)…", "Отмена", 0, 0, self)
         dlg.setWindowModality(Qt.WindowModal)
-        dlg.setCancelButton(None)
         dlg.setMinimumDuration(0)
         dlg.show()
         loop = QEventLoop(self)
-        result = [""]
+        result, cancelled = [""], [False]
         worker = _OfficePdfWorker(path)
+        self._office_worker = worker
         worker.done.connect(lambda pdf: result.__setitem__(0, pdf))
         worker.finished.connect(loop.quit)
+        dlg.canceled.connect(lambda: (cancelled.__setitem__(0, True), loop.quit()))
         worker.start()
         loop.exec()
-        worker.wait(1000)
+        if cancelled[0]:
+            worker.finished.connect(lambda: setattr(self, "_office_worker", None))
+        else:
+            worker.wait(1000)
+            self._office_worker = None
         dlg.close()
         dlg.deleteLater()
-        return result[0]
+        return "" if cancelled[0] else result[0]
 
     def _build(self):
         tb = QToolBar("Чтение"); tb.setMovable(False); self.addToolBar(tb)

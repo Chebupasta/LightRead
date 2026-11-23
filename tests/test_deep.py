@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TMP = Path(tempfile.mkdtemp(prefix="lr_deep_"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("APPDATA", str(TMP))
+os.environ["APPDATA"] = str(TMP)  # тесты не должны трогать реальную библиотеку пользователя
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QSize, Qt, QRectF

@@ -75,6 +75,12 @@ def main():
         sock.write("\n".join(args).encode("utf-8")); sock.flush(); sock.waitForBytesWritten(500)
         return 0
 
+    from formats_extra import cleanup_faithful_pdfs
+    cleanup_faithful_pdfs()
+    cache_timer = QTimer()
+    cache_timer.timeout.connect(cleanup_faithful_pdfs)
+    cache_timer.start(24 * 60 * 60 * 1000)
+
     win = Win()
     win.show()
 
