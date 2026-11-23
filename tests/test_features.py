@@ -925,7 +925,7 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.reload()
         self.assertFalse(self.win.cont.isHidden())
         self.assertEqual(self.win._continue_id, self.bid)
-        self.assertGreaterEqual(self.win.home.recent_layout.count(), 1)
+        self.assertGreaterEqual(sum(row.count() for row in self.win.home.recent_rows), 1)
 
     def test_hover_actions_rendered(self):
         self.win.set_view("grid")

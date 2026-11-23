@@ -1156,13 +1156,15 @@ class HomePage(QWidget):
         recent_row.addWidget(recent_title); recent_row.addStretch(1); recent_row.addWidget(all_books)
         root.addLayout(recent_row)
         self.recent_host = QWidget()
-        self.recent_layout = QGridLayout(self.recent_host)
-        self.recent_layout.setContentsMargins(0, 0, 0, 0)
-        self.recent_layout.setSpacing(12)
-        self.recent_layout.setColumnStretch(3, 1)
-        self.recent_layout.setRowStretch(2, 1)
-        self.recent_layout.setRowMinimumHeight(0, 140)
-        self.recent_layout.setRowMinimumHeight(1, 140)
+        host_layout = QVBoxLayout(self.recent_host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        host_layout.setSpacing(12)
+        self.recent_rows = []
+        for _ in range(2):
+            row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(12)
+            self.recent_rows.append(row)
+            host_layout.addLayout(row)
+        host_layout.addStretch(1)
         root.addWidget(self.recent_host, 1)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
@@ -1238,21 +1240,22 @@ class HomePage(QWidget):
             self.cont_cover.setPixmap(self._cover(r["id"], name, 80, 114))
             self.cont.show()
 
-        while self.recent_layout.count():
-            item = self.recent_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+        for row in self.recent_rows:
+            while row.count():
+                item = row.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
         recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 6")
         if not recent:
             hint = QLabel("Здесь появятся недавно открытые книги")
             hint.setObjectName("HomeSubtle")
-            self.recent_layout.addWidget(hint, 0, 0)
+            self.recent_rows[0].addWidget(hint)
         for i, r in enumerate(recent):
             title = r["title"] or "Без названия"
             author = (r["author"] or "").split(";")[0]
             card = QPushButton()
-            card.setFixedHeight(132)
+            card.setFixedSize(300, 132)
             card.setObjectName("RecentCard")
             card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
             card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
@@ -1263,7 +1266,9 @@ class HomePage(QWidget):
             lines.append(f"{r['progress'] * 100:.0f}% прочитано")
             card.setText("\n".join(lines))
             card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
-            self.recent_layout.addWidget(card, i // 3, i % 3)
+            self.recent_rows[i // 3].addWidget(card)
+        for row in self.recent_rows:
+            row.addStretch(1)
 
         goal = int(S.get("daily_goal", 0) or 0)
         today = date.today().isoformat()
@@ -1492,6 +1497,9 @@ class BrowserTabs(QWidget):
 
         head = QHBoxLayout(); head.setContentsMargins(0, 0, 0, 0); head.setSpacing(0)
         head.addWidget(self._bar, 0, Qt.AlignLeft)
+        sep = QFrame(self); sep.setObjectName("HomeDivider")
+        sep.setFixedSize(1, 20)
+        head.addWidget(sep, 0, Qt.AlignVCenter)
         head.addWidget(self._plus, 0, Qt.AlignLeft)
         head.addStretch(1)
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)

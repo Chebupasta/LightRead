@@ -115,8 +115,8 @@ QToolButton#TabClose:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
 }
 QToolButton#NewTab {
-  background: transparent; border: 1px solid %(border.subtle)s;
-  border-radius: %(radius.sm)s; padding: 0 12px; margin: 0;
+  background: transparent; border: 0;
+  border-radius: %(radius.sm)s; padding: 0 14px; margin: 0;
   color: %(text.secondary)s; font-size: %(font.xl)s;
 }
 QToolButton#NewTab:hover {
