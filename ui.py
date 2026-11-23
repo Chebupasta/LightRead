@@ -7,7 +7,7 @@ from PySide6.QtCore import (Qt, QThread, Signal, QSize, QRectF, QUrl, QEvent, QT
                             QFileSystemWatcher, QPropertyAnimation, QPoint)
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPainter, QPixmap,
                            QKeySequence, QStandardItem, QStandardItemModel, QShortcut, QIcon,
-                           QLinearGradient, QPen, QPainterPath, QGuiApplication)
+                           QLinearGradient, QPen, QPainterPath, QGuiApplication, QFontMetrics)
 from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QStyle, QTreeWidget,
                                QStyleOptionViewItem,
                                QTreeWidgetItem, QSplitter, QToolBar, QLineEdit, QComboBox, QWidget,
@@ -1247,27 +1247,23 @@ class HomePage(QWidget):
                 w = item.widget()
                 if w is not None:
                     w.deleteLater()
-        recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 6")
+        recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 8")
         if not recent:
             hint = QLabel("Здесь появятся недавно открытые книги")
             hint.setObjectName("HomeSubtle")
             self.recent_rows[0].addWidget(hint)
         for i, r in enumerate(recent):
             title = r["title"] or "Без названия"
-            author = (r["author"] or "").split(";")[0]
             card = QPushButton()
-            card.setFixedSize(300, 132)
+            card.setFixedSize(300, 150)
             card.setObjectName("RecentCard")
             card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
             card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
             card.setIconSize(QSize(56, 82))
-            lines = [title[:24]]
-            if author:
-                lines.append(author[:24])
-            lines.append(f"{r['progress'] * 100:.0f}% прочитано")
-            card.setText("\n".join(lines))
+            elided = QFontMetrics(self.font()).elidedText(title, Qt.ElideRight, 190)
+            card.setText(f"{elided}\n{r['progress'] * 100:.0f}% прочитано")
             card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
-            self.recent_rows[i // 3].addWidget(card)
+            self.recent_rows[i // 4].addWidget(card)
         for row in self.recent_rows:
             row.addStretch(1)
 
@@ -1486,7 +1482,7 @@ class BrowserTabs(QWidget):
         self._plus.setObjectName("NewTab")
         self._plus.setToolTip("Новая вкладка")
         self._plus.setCursor(Qt.ArrowCursor)
-        self._bar.setExpanding(False)
+        self._bar.setExpanding(True)
         self._bar.setUsesScrollButtons(True)
         self._bar.setElideMode(Qt.ElideRight)
         self._bar.setTabsClosable(True)
@@ -1497,12 +1493,8 @@ class BrowserTabs(QWidget):
         self._plus.clicked.connect(self.newTabRequested.emit)
 
         head = QHBoxLayout(); head.setContentsMargins(0, 0, 0, 0); head.setSpacing(0)
-        head.addWidget(self._bar, 0, Qt.AlignLeft)
-        sep = QFrame(self); sep.setObjectName("HomeDivider")
-        sep.setFixedSize(1, 20)
-        head.addWidget(sep, 0, Qt.AlignVCenter)
-        head.addWidget(self._plus, 0, Qt.AlignLeft)
-        head.addStretch(1)
+        head.addWidget(self._bar, 1)
+        head.addWidget(self._plus, 0, Qt.AlignVCenter)
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
         root.addLayout(head)
         root.addWidget(self._stack, 1)

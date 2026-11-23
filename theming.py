@@ -115,9 +115,9 @@ QToolButton#TabClose:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
 }
 QToolButton#NewTab {
-  background: transparent; border: 0;
-  border-radius: %(radius.sm)s; padding: 0 14px; margin: 0;
-  color: %(text.secondary)s; font-size: %(font.xl)s;
+  background: %(bg.panel)s; border: 0; border-left: 1px solid %(border.subtle)s;
+  border-radius: 0; padding: 0 18px; margin: 0;
+  color: %(text.secondary)s; font-size: 22px;
 }
 QToolButton#NewTab:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
@@ -312,7 +312,7 @@ QPushButton#RecentCard {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.md)s; padding: 12px 10px;
   color: %(text.primary)s; font-size: %(font.md)s; text-align: left;
-  line-height: 125%%;
+  padding: 10px;
 }
 QPushButton#RecentCard:hover {
   background: %(bg.hover)s; border-color: %(accent.default)s;
