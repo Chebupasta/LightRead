@@ -106,6 +106,14 @@ QTabBar::close-button {
   width: 11px; height: 11px; border-radius: 2px;
 }
 QTabBar::close-button:hover { background: %(bg.hover)s; }
+QToolButton#TabClose {
+  background: transparent; border: 0; border-radius: 2px;
+  color: %(text.tertiary)s; padding: 0; margin: 0 5px 0 2px;
+  width: 16px; height: 16px; font-size: %(font.lg)s;
+}
+QToolButton#TabClose:hover {
+  background: %(bg.hover)s; color: %(text.primary)s;
+}
 QToolButton#NewTab {
   background: transparent; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s; padding: 3px 9px; margin-right: 6px;

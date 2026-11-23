@@ -1985,6 +1985,12 @@ class Win(QMainWindow):
         self.reader = r
         title = (row["title"] or "Без названия")[:40]
         self.book_tabs.addTab(r, title)
+        idx = self.book_tabs.count() - 1
+        close = QToolButton()
+        close.setText("×"); close.setObjectName("TabClose")
+        close.setToolTip("Закрыть вкладку"); close.setCursor(Qt.ArrowCursor)
+        close.clicked.connect(lambda _=False, i=idx: self.close_tab(i))
+        self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, close)
         self.book_tabs.setCurrentWidget(r)
 
     def reader_fullscreen(self, r=None):
