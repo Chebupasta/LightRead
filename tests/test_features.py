@@ -857,6 +857,21 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.list.doubleClicked.emit(QModelIndex())
         self.win.book_menu(QPoint(-1, -1))
 
+    def test_keyboard_shortcuts_registered(self):
+        from PySide6.QtGui import QShortcut
+        keys = {s.key().toString() for s in self.win.findChildren(QShortcut)}
+        self.assertIn("F1", keys)
+        self.assertIn("Ctrl+L", keys)
+        bid = self.win.import_path(str(make_book(TMP / "keys.fb2", "Клавиши")))
+        self.win.open_book(bid)
+        r = self.win.reader
+        try:
+            keys |= {s.key().toString() for s in r.findChildren(QShortcut)}
+            self.assertIn("Ctrl+Shift+C", keys)
+            self.assertIn("Ctrl+G", keys)
+        finally:
+            r.close()
+
     def test_tab_close_button_follows_its_widget(self):
         from PySide6.QtWidgets import QApplication
         b1 = self.win.import_path(str(make_book(TMP / "close_a.fb2", "A")))

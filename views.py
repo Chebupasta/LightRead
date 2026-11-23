@@ -10,7 +10,7 @@ from PySide6.QtGui import (QColor, QFont, QFontDatabase, QImage, QPainter, QPixm
                            QTextCharFormat, QTextCursor, QTextBlockFormat, QTextDocument)
 from PySide6.QtWidgets import QWidget, QScrollBar
 
-from common import theme, PDF_LOCK
+from common import theme, PDF_LOCK, S
 
 
 @functools.lru_cache(maxsize=None)
@@ -286,6 +286,7 @@ class ReflowView(QWidget):
         self.pages = 1; self.total = 0.0
         self.notes = []; self.sel = None
         self._drag = None; self._text = ""; self.chap = None
+        self._wheel_acc = 0; self._swipe_x = 0  # накопители для колеса и свайпов тачпада
         self._base_blocks = []  # исходные параметры абзацев до применения настроек чтения
         self._chap_cache = OrderedDict()  # не парсим ZIP/XML заново при возврате к главе
         self._restyle_timer = QTimer(self); self._restyle_timer.setSingleShot(True)
@@ -717,15 +718,34 @@ class ReflowView(QWidget):
         self.menuRequested.emit(e.globalPosition().toPoint())
 
     def wheelEvent(self, e):
+        pixel, angle = e.pixelDelta(), e.angleDelta()
+        px, py = pixel.x(), pixel.y()
+        ax, ay = angle.x(), angle.y()
         if e.modifiers() & Qt.ControlModifier:
-            self.fontDelta.emit(1 if e.angleDelta().y() > 0 else -1); return
-        dy = e.angleDelta().y()
+            self._wheel_acc = self._swipe_x = 0
+            self.fontDelta.emit(1 if (ay or py) > 0 else -1)
+            return
         if self.st["mode"] == "scroll":
-            self.scroll_by(-dy * 0.65)
-        elif self.st["wheel_pages"]:
-            (self.prev if dy > 0 else self.next)()
+            self._wheel_acc = self._swipe_x = 0
+            self.scroll_by(-(py or ay * 0.65))
+            return
+        # Горизонтальный двухпальцевый свайп — листание страниц/глав.
+        if S.get("swipe_nav", True) and abs(px or ax) > abs(py or ay) * 1.3:
+            self._swipe_x += px or ax
+            self._wheel_acc = 0
+            if abs(self._swipe_x) >= 80:
+                (self.prev if self._swipe_x > 0 else self.next)()
+                self._swipe_x = 0
+            return
+        self._swipe_x = 0
+        if self.st["wheel_pages"]:
+            self._wheel_acc += py or ay
+            if abs(self._wheel_acc) >= 120:
+                (self.prev if self._wheel_acc > 0 else self.next)()
+                self._wheel_acc = 0
         else:
-            self.scroll_by(-dy)
+            self._wheel_acc = 0
+            self.scroll_by(-(py or ay))
 
     def keyPressEvent(self, e):
         k, mod = e.key(), e.modifiers()
@@ -1174,7 +1194,9 @@ class FixedView(QWidget):
         else: self.centerTapped.emit()
 
     def wheelEvent(self, e):
-        dy = e.angleDelta().y()
+        pixel, angle = e.pixelDelta(), e.angleDelta()
+        px, py = pixel.x(), pixel.y()
+        dy = py or angle.y()
         if e.modifiers() & Qt.ControlModifier:
             pt = e.position()
             anchor = ((self.ox + pt.x()) / self.scale, (self.oy + pt.y()) / self.scale)
@@ -1182,8 +1204,8 @@ class FixedView(QWidget):
             self.st["pdf_zoom"] = max(25, min(600, int(self.scale * 100 * (1.15 if dy > 0 else 1 / 1.15))))
             self._apply_fit(anchor)
             return
-        if e.modifiers() & Qt.ShiftModifier:
-            self._scroll_to(self._tx - dy * 0.8, self._ty)
+        if e.modifiers() & Qt.ShiftModifier or (px and abs(px) > abs(py) * 1.3):
+            self._scroll_to(self._tx - (px or angle.x()) * 0.8, self._ty)
         else:
             self._scroll_to(self._tx, self._ty - dy * 0.85)
 

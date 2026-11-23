@@ -477,6 +477,7 @@ SCHEMA_UI = [
               ("accent", "Акцентный цвет", "choice", list(ACCENTS))]),
     ("Управление", [
         ("tap_zones", "Тап-зоны", "bool"), ("wheel_pages", "Колесо листает страницы", "bool"),
+        ("swipe_nav", "Горизонтальный свайп листает страницы", "bool"),
         ("autoscroll", "Скорость автопрокрутки", "int", 5, 200),
         ("tune_visible", "Панель настройки при открытии", "bool"),
     ]),
@@ -1638,6 +1639,9 @@ class Win(QMainWindow):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self, lambda i=i: self.switch_tab_num(i))
         QShortcut(QKeySequence("Alt+Left"), self, lambda: self.tab_history(-1))
         QShortcut(QKeySequence("Alt+Right"), self, lambda: self.tab_history(1))
+        QShortcut(QKeySequence("F1"), self, self.hotkeys)
+        QShortcut(QKeySequence("Ctrl+L"), self,
+                  lambda: (self.book_tabs.setCurrentIndex(LIB_TAB), self.q.setFocus()))
         find = QShortcut(QKeySequence("Ctrl+F"), self.library_page,
                          lambda: (self.book_tabs.setCurrentIndex(LIB_TAB), self.q.setFocus()))
         find.setContext(Qt.WidgetWithChildrenShortcut)
@@ -2420,13 +2424,13 @@ class Win(QMainWindow):
 
     def hotkeys(self):
         QMessageBox.information(self, "Горячие клавиши", """
-<b>Главная</b>: Ctrl+1 главная · Ctrl+2 библиотека · Ctrl+K команды · Ctrl+Shift+T вернуть вкладку
-<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+D вид · F7 настройки · Ctrl+F поиск · Alt+Enter свойства файла
-<b>Чтение</b>: Space/PgDn вперёд · PgUp назад · Home/End начало/конец · Ctrl+←/→ глава
-F4 навигация · Ctrl+F поиск · Ctrl+B закладка · Ctrl+N заметки · Ctrl+T озвучка
-Ctrl+R автопрокрутка · F5 тема · F6 панель настройки · F11 полный экран · Ctrl+W закрыть
-<b>PDF</b>: колесо — прокрутка, Ctrl+колесо — зум под курсором, перетаскивание — панорама,
-0 — по ширине, 9 — по странице, +/− — масштаб.
+<b>Общее</b>: F1 справка · Ctrl+K команды · Ctrl+1…9 вкладка · Ctrl+Tab следующая · Ctrl+Shift+T вернуть вкладку · Alt+←/→ история вкладок
+<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+L/Ctrl+F поиск · Ctrl+D вид · Alt+Enter свойства
+<b>Чтение</b>: Space/PgDn вперёд · PgUp назад · Home/End начало/конец текста · Ctrl+Home/End первая/последняя глава
+Ctrl+←/→ глава · Ctrl+G к странице · Ctrl+Shift+C копировать выделение · Ctrl+F поиск · F4 содержание
+Ctrl+B закладка · Ctrl+N заметки · Ctrl+T озвучка · Ctrl+R автопрокрутка · F5 тема · F6 панель · F7 настройки · F10 фокус · F11 полный экран · Ctrl+W закрыть
+<b>Тачпад</b>: два пальца — плавная прокрутка, горизонтальный свайп — листание (включается в настройках), Ctrl+сведение — зум, перетаскивание — панорама.
+<b>PDF</b>: колесо — прокрутка, Ctrl+колесо — зум под курсором, 0 — по ширине, 9 — по странице, +/− — масштаб.
 """)
 
     def dragEnterEvent(self, e):

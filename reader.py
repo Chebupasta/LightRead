@@ -372,6 +372,11 @@ class Reader(QMainWindow):
         dlg.deleteLater()
         return pdf
 
+    def copy_selection(self):
+        text = getattr(self.view, "selection_text", lambda: "")()
+        if text:
+            QGuiApplication.clipboard().setText(text)
+
     def _build(self):
         tb = QToolBar("Чтение"); tb.setMovable(False); self.addToolBar(tb)
         self.tb_main = tb
@@ -407,6 +412,10 @@ class Reader(QMainWindow):
         self.a_full = act("Полный экран", self.fullscreen, "F11", True)
         self.a_focus = act("Фокус-режим", self.toggle_chrome, "F10", True)
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, self.quick_note)
+        QShortcut(QKeySequence("Ctrl+Home"), self, lambda: self.view.first())
+        QShortcut(QKeySequence("Ctrl+End"), self, lambda: self.view.last())
+        QShortcut(QKeySequence("Ctrl+G"), self, lambda: self.pg.setFocus())
+        QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.copy_selection)
         act("Параметры", self.settings, "F7")
 
         m = self.menuBar().addMenu("Книга")
