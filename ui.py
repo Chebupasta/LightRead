@@ -7,7 +7,7 @@ from PySide6.QtCore import (Qt, QThread, Signal, QSize, QRectF, QUrl, QEvent, QT
                             QFileSystemWatcher, QPropertyAnimation, QPoint)
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QImage, QPainter, QPixmap,
                            QKeySequence, QStandardItem, QStandardItemModel, QShortcut, QIcon,
-                           QLinearGradient, QPen, QPainterPath, QGuiApplication, QFontMetrics)
+                           QLinearGradient, QPen, QPainterPath, QGuiApplication)
 from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QStyle, QTreeWidget,
                                QStyleOptionViewItem,
                                QTreeWidgetItem, QSplitter, QToolBar, QLineEdit, QComboBox, QWidget,
@@ -1147,25 +1147,9 @@ class HomePage(QWidget):
         self.cont.hide()
         root.addWidget(self.cont)
 
-        recent_row = QHBoxLayout(); recent_row.setSpacing(10)
-        recent_title = QLabel("Недавние книги")
-        recent_title.setObjectName("SectionTitle")
-        all_books = QPushButton("Все книги →")
-        all_books.setObjectName("HomeLink")
-        all_books.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
-        recent_row.addWidget(recent_title); recent_row.addStretch(1); recent_row.addWidget(all_books)
-        root.addLayout(recent_row)
-        self.recent_host = QWidget()
-        host_layout = QVBoxLayout(self.recent_host)
-        host_layout.setContentsMargins(0, 0, 0, 0)
-        host_layout.setSpacing(12)
-        self.recent_rows = []
-        for _ in range(2):
-            row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(12)
-            self.recent_rows.append(row)
-            host_layout.addLayout(row)
-        host_layout.addStretch(1)
-        root.addWidget(self.recent_host)
+        stats_title = QLabel("Статистика")
+        stats_title.setObjectName("SectionTitle")
+        root.addWidget(stats_title)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
         sl = QHBoxLayout(self.stats); sl.setContentsMargins(16, 12, 16, 12); sl.setSpacing(28)
@@ -1240,32 +1224,6 @@ class HomePage(QWidget):
             self.cont_bar.setRange(0, 100); self.cont_bar.setValue(int(r["progress"] * 100))
             self.cont_cover.setPixmap(self._cover(r["id"], name, 80, 114))
             self.cont.show()
-
-        for row in self.recent_rows:
-            while row.count():
-                item = row.takeAt(0)
-                w = item.widget()
-                if w is not None:
-                    w.deleteLater()
-        recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 8")
-        if not recent:
-            hint = QLabel("Здесь появятся недавно открытые книги")
-            hint.setObjectName("HomeSubtle")
-            self.recent_rows[0].addWidget(hint)
-        for i, r in enumerate(recent):
-            title = r["title"] or "Без названия"
-            card = QPushButton()
-            card.setFixedSize(300, 150)
-            card.setObjectName("RecentCard")
-            card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
-            card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
-            card.setIconSize(QSize(56, 82))
-            elided = QFontMetrics(self.font()).elidedText(title, Qt.ElideRight, 190)
-            card.setText(f"{elided}\n{r['progress'] * 100:.0f}% прочитано")
-            card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
-            self.recent_rows[i // 4].addWidget(card)
-        for row in self.recent_rows:
-            row.addStretch(1)
 
         goal = int(S.get("daily_goal", 0) or 0)
         today = date.today().isoformat()
@@ -1482,7 +1440,7 @@ class BrowserTabs(QWidget):
         self._plus.setObjectName("NewTab")
         self._plus.setToolTip("Новая вкладка")
         self._plus.setCursor(Qt.ArrowCursor)
-        self._bar.setExpanding(True)
+        self._bar.setExpanding(False)
         self._bar.setUsesScrollButtons(True)
         self._bar.setElideMode(Qt.ElideRight)
         self._bar.setTabsClosable(True)
