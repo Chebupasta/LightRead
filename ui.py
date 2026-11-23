@@ -1151,17 +1151,26 @@ class HomePage(QWidget):
         root.addWidget(stats_title)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
-        sl = QHBoxLayout(self.stats); sl.setContentsMargins(16, 12, 16, 12); sl.setSpacing(28)
+        sl = QVBoxLayout(self.stats); sl.setContentsMargins(16, 14, 16, 14); sl.setSpacing(10)
+        grid = QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(10)
         self.stat_values = {}
-        for key, caption in (("read", "Прочитано книг"), ("hours", "Время чтения"),
-                             ("marks", "Закладки"), ("notes", "Заметки")):
+        metrics = (("books", "Всего книг"), ("read", "Прочитано"), ("reading", "Читаю сейчас"),
+                   ("hours", "Время чтения"), ("pages", "Страниц"), ("streak", "Серия дней"),
+                   ("marks", "Закладки"), ("notes", "Заметки"))
+        for i, (key, caption) in enumerate(metrics):
             cell = QVBoxLayout(); cell.setSpacing(2)
             value = QLabel("—"); value.setObjectName("StatValue")
             label = QLabel(caption); label.setObjectName("StatCaption")
             cell.addWidget(value); cell.addWidget(label)
-            sl.addLayout(cell)
+            grid.addLayout(cell, i // 4, i % 4)
             self.stat_values[key] = value
-        sl.addStretch(1)
+        sl.addLayout(grid)
+        heat_title = QLabel("Активность чтения · 90 дней")
+        heat_title.setObjectName("HomeSubtle")
+        sl.addWidget(heat_title)
+        self.heat = StatsHeat({}, 13, self)
+        self.heat.setMaximumHeight(96)
+        sl.addWidget(self.heat)
         root.addWidget(self.stats)
 
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
@@ -1201,10 +1210,22 @@ class HomePage(QWidget):
         lib = self.win.lib
         total = lib.q("SELECT count(*) c FROM books")[0]["c"]
         self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
+        self.stat_values["books"].setText(str(total))
         self.stat_values["read"].setText(str(lib.q(
             "SELECT count(*) c FROM books WHERE progress>=0.995")[0]["c"]))
-        self.stat_values["hours"].setText(hms(int(lib.q(
-            "SELECT coalesce(sum(seconds),0) s FROM stats")[0]["s"] or 0)))
+        self.stat_values["reading"].setText(str(lib.q(
+            "SELECT count(*) c FROM books WHERE progress>0.001 AND progress<0.995")[0]["c"]))
+        stat_rows = lib.stats()
+        days = {r["day"]: (r["s"] or 0) for r in stat_rows}
+        self.heat.days = days
+        self.heat.update()
+        self.stat_values["hours"].setText(hms(int(sum(days.values()))))
+        self.stat_values["pages"].setText(str(sum(int(r["p"] or 0) for r in stat_rows)))
+        streak, day = 0, date.today()
+        while days.get(day.isoformat(), 0) > 0:
+            streak += 1
+            day -= timedelta(days=1)
+        self.stat_values["streak"].setText(str(streak))
         self.stat_values["marks"].setText(str(lib.q("SELECT count(*) c FROM marks")[0]["c"]))
         self.stat_values["notes"].setText(str(lib.q("SELECT count(*) c FROM notes")[0]["c"]))
         rows = lib.q("SELECT id,title,author,progress FROM books "
@@ -1622,6 +1643,7 @@ class Win(QMainWindow):
         self.sort.currentIndexChanged.connect(self.sort_changed)
         tb.addWidget(self.sort)
         act("Сетка / Список", self.toggle_view, "Ctrl+D")
+        act("Дерево", self.toggle_tree, "F9")
         act("Настройки", self.settings, "F7")
         act("Статистика", self.stats)
         self.fav_btn = QToolButton(); self.fav_btn.setText("★ Избранное")
@@ -1780,7 +1802,7 @@ class Win(QMainWindow):
         dn = node(root, "Папки", dict(kind="folders"))
         for d in self.lib.folders():
             node(dn, Path(d).name or d, dict(kind="folder", value=d), d)
-        self.tree.expandToDepth(0)
+        self.tree.collapseAll()
         self.tree.blockSignals(False)
 
     def nav(self, it, _):
@@ -1957,6 +1979,9 @@ class Win(QMainWindow):
 
     def toggle_view(self):
         self.set_view("list" if self.deleg.grid else "grid")
+
+    def toggle_tree(self):
+        self.tree.setVisible(not self.tree.isVisible())
 
     def first_run(self):
         if QMessageBox.question(self, "Добро пожаловать",
@@ -2515,7 +2540,7 @@ Ctrl+Shift+T — вернуть вкладку · Alt+←/→ — история
 Средняя кнопка по вкладке — закрыть · двойной клик по пустому месту — главная
 <h3>Библиотека</h3>
 Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+D — вид ·
-Alt+Enter — свойства файла
+F9 — дерево библиотеки · Alt+Enter — свойства файла
 <h3>Чтение</h3>
 Space / PgDn — вперёд · PgUp — назад · Home / End — начало / конец текста ·
 Ctrl+Home / Ctrl+End — первая / последняя глава · Ctrl+←/→ — глава ·

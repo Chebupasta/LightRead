@@ -861,7 +861,8 @@ class TestHomeAndTabs(unittest.TestCase):
 
     def test_home_has_stats(self):
         self.assertIsNotNone(self.win.home.stats.parent())
-        self.assertEqual(set(self.win.home.stat_values), {"read", "hours", "marks", "notes"})
+        self.assertTrue({"books", "read", "reading", "hours", "pages", "streak", "marks", "notes"}.issubset(
+            set(self.win.home.stat_values)))
         self.win.home.refresh()
         for value in self.win.home.stat_values.values():
             self.assertNotEqual(value.text(), "—")
