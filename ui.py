@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
-                                QGraphicsOpacityEffect, QApplication)
+                                QGraphicsOpacityEffect, QApplication, QStackedWidget)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
@@ -1161,6 +1161,8 @@ class HomePage(QWidget):
         self.recent_layout.setSpacing(12)
         self.recent_layout.setColumnStretch(3, 1)
         self.recent_layout.setRowStretch(2, 1)
+        self.recent_layout.setRowMinimumHeight(0, 140)
+        self.recent_layout.setRowMinimumHeight(1, 140)
         root.addWidget(self.recent_host, 1)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
@@ -1250,6 +1252,7 @@ class HomePage(QWidget):
             title = r["title"] or "Без названия"
             author = (r["author"] or "").split(";")[0]
             card = QPushButton()
+            card.setFixedHeight(132)
             card.setObjectName("RecentCard")
             card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
             card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
@@ -1461,6 +1464,133 @@ class CommandPalette(QDialog):
         self._fire(it)
 
 
+class BrowserTabs(QWidget):
+    """Панель вкладок в стиле браузера: полоса вкладок и кнопка «+» рядом с ними."""
+
+    currentChanged = Signal(int)
+    tabCloseRequested = Signal(int)
+    newTabRequested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._bar = QTabBar(self)
+        self._stack = QStackedWidget(self)
+        self._plus = QToolButton(self)
+        self._plus.setText("+")
+        self._plus.setObjectName("NewTab")
+        self._plus.setToolTip("Новая вкладка")
+        self._plus.setCursor(Qt.ArrowCursor)
+        self._bar.setExpanding(False)
+        self._bar.setUsesScrollButtons(True)
+        self._bar.setElideMode(Qt.ElideRight)
+        self._bar.setTabsClosable(True)
+        self._bar.setFixedHeight(38)
+        self._bar.currentChanged.connect(self._on_current)
+        self._bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
+        self._bar.tabMoved.connect(self._on_moved)
+        self._plus.clicked.connect(self.newTabRequested.emit)
+
+        head = QHBoxLayout(); head.setContentsMargins(0, 0, 0, 0); head.setSpacing(0)
+        head.addWidget(self._bar, 0, Qt.AlignLeft)
+        head.addWidget(self._plus, 0, Qt.AlignLeft)
+        head.addStretch(1)
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        root.addLayout(head)
+        root.addWidget(self._stack, 1)
+
+    def _on_current(self, i):
+        self._stack.setCurrentIndex(i)
+        self.currentChanged.emit(i)
+
+    def _on_moved(self, old, new):
+        w = self._stack.widget(old)
+        if w is None:
+            return
+        self._stack.removeWidget(w)
+        self._stack.insertWidget(new, w)
+        self._stack.setCurrentIndex(self._bar.currentIndex())
+
+    def addTab(self, widget, text=""):
+        i = self._stack.addWidget(widget)
+        self._bar.insertTab(i, text if text else "")
+        if self._bar.count() == 1:
+            self._bar.setCurrentIndex(0)
+        return i
+
+    def count(self):
+        return self._bar.count()
+
+    def currentIndex(self):
+        return self._bar.currentIndex()
+
+    def setCurrentIndex(self, i):
+        self._bar.setCurrentIndex(i)
+
+    def setCurrentWidget(self, w):
+        self.setCurrentIndex(self.indexOf(w))
+
+    def widget(self, i):
+        return self._stack.widget(i)
+
+    def indexOf(self, w):
+        return self._stack.indexOf(w)
+
+    def removeTab(self, i):
+        w = self._stack.widget(i)
+        self._bar.removeTab(i)
+        if w is None:
+            return
+        try:
+            self._stack.removeWidget(w)
+            w.setParent(None)
+        except RuntimeError:
+            pass
+
+    def tabBar(self):
+        return self._bar
+
+    def tabText(self, i):
+        return self._bar.tabText(i)
+
+    def setTabText(self, i, text):
+        self._bar.setTabText(i, text)
+
+    def tabIcon(self, i):
+        return self._bar.tabIcon(i)
+
+    def setTabIcon(self, i, icon):
+        self._bar.setTabIcon(i, icon)
+
+    def tabToolTip(self, i):
+        return self._bar.tabToolTip(i)
+
+    def setTabToolTip(self, i, text):
+        self._bar.setTabToolTip(i, text)
+
+    def setTabButton(self, i, position, widget):
+        self._bar.setTabButton(i, position, widget)
+
+    def setTabVisible(self, i, visible):
+        self._bar.setTabVisible(i, visible)
+
+    def setTabsClosable(self, on):
+        self._bar.setTabsClosable(on)
+
+    def setMovable(self, on):
+        self._bar.setMovable(on)
+
+    def setDocumentMode(self, on):
+        pass
+
+    def setAccessibleName(self, name):
+        super().setAccessibleName(name)
+        self._bar.setAccessibleName(name)
+
+    def setCornerWidget(self, widget, corner=None):
+        if widget is not None:
+            widget.hide()
+
+
 class Win(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1621,24 +1751,19 @@ class Win(QMainWindow):
         self.home = HomePage(self)
         self.cont = self.home.cont
         self.cont_label = self.home.cont_label
-        self.book_tabs = QTabWidget()
-        self.book_tabs.setTabsClosable(True)
+        self.book_tabs = BrowserTabs(self)
         self.book_tabs.tabCloseRequested.connect(self.close_tab)
+        self.book_tabs.newTabRequested.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
         bar = self.book_tabs.tabBar()
         bar.setContextMenuPolicy(Qt.CustomContextMenu)
         bar.customContextMenuRequested.connect(self.tab_menu)
-        bar.setExpanding(False)
-        bar.setUsesScrollButtons(True)
-        bar.setElideMode(Qt.ElideRight)
         bar.installEventFilter(self)
-        self.book_tabs.setDocumentMode(True)
         self.book_tabs.setMovable(True)
         self.book_tabs.addTab(self.home, "")
         self.book_tabs.addTab(central, "")
         bar.setTabToolTip(HOME_TAB, "Главная")
         bar.setTabToolTip(LIB_TAB, "Библиотека")
         self.book_tabs.setAccessibleName("Вкладки книг")
-        self.book_tabs.tabBar().setAccessibleName("Переключение вкладок")
         accent = None
         try:
             from common import ACCENT
@@ -1651,13 +1776,8 @@ class Win(QMainWindow):
             p = QPainter(pm); f = QFont(); f.setPointSize(15); p.setFont(f)
             p.setPen(QColor(accent)); p.drawText(pm.rect(), Qt.AlignCenter, glyph); p.end()
             self.book_tabs.setTabIcon(i, QIcon(pm))
-        self.book_tabs.tabBar().setTabButton(HOME_TAB, QTabBar.RightSide, None)
-        self.book_tabs.tabBar().setTabButton(LIB_TAB, QTabBar.RightSide, None)
-        bar.setFixedHeight(38)
-        plus = QToolButton(); plus.setText("+"); plus.setToolTip("Новая вкладка")
-        plus.setObjectName("NewTab"); plus.setFixedHeight(38)
-        plus.clicked.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
-        self.book_tabs.setCornerWidget(plus, Qt.TopRightCorner)
+        bar.setTabButton(HOME_TAB, QTabBar.RightSide, None)
+        bar.setTabButton(LIB_TAB, QTabBar.RightSide, None)
         self.setCentralWidget(self.book_tabs)
         QApplication.instance().setProperty("main_window", self)
         QShortcut(QKeySequence("Ctrl+Tab"), self, lambda: self.cycle_tab(1))
