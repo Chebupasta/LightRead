@@ -1093,8 +1093,17 @@ class HomePage(QWidget):
         self.setObjectName("HomePage")
         self.setAccessibleName("Главный экран")
         root = QVBoxLayout(self)
-        root.setContentsMargins(26, 18, 26, 18)
-        root.setSpacing(16)
+        root.setContentsMargins(30, 22, 30, 22)
+        root.setSpacing(18)
+
+        header = QHBoxLayout(); header.setSpacing(8)
+        page_title = QLabel("Главная")
+        page_title.setObjectName("HomePageTitle")
+        page_hint = QLabel("Ваши книги и прогресс чтения")
+        page_hint.setObjectName("HomePageHint")
+        header.addWidget(page_title); header.addWidget(page_hint, 0, Qt.AlignBottom)
+        header.addStretch(1)
+        root.addLayout(header)
 
         title = QLabel("Продолжить чтение")
         title.setObjectName("HomeTitle")
@@ -1103,18 +1112,18 @@ class HomePage(QWidget):
         self.cont = QFrame()
         self.cont.setObjectName("ContinueCard")
         ch = QHBoxLayout(self.cont)
-        ch.setContentsMargins(14, 12, 14, 12)
-        ch.setSpacing(14)
+        ch.setContentsMargins(18, 16, 18, 16)
+        ch.setSpacing(18)
         self.cont_cover = QLabel()
-        self.cont_cover.setFixedSize(QSize(72, 104))
+        self.cont_cover.setFixedSize(QSize(80, 114))
         self.cont_cover.setAlignment(Qt.AlignCenter)
         ch.addWidget(self.cont_cover)
         col = QVBoxLayout(); col.setSpacing(5)
         self.cont_label = QLabel()
         self.cont_label.setObjectName("ContinueLabel")
         self.cont_label.setWordWrap(True)
-        self.cont_meta = QLabel(); self.cont_meta.setObjectName("HomeSubtle")
-        self.cont_bar = QProgressBar(); self.cont_bar.setFixedHeight(3)
+        self.cont_meta = QLabel(); self.cont_meta.setObjectName("ContinueMeta")
+        self.cont_bar = QProgressBar(); self.cont_bar.setFixedHeight(4)
         self.cont_bar.setTextVisible(False)
         col.addWidget(self.cont_label); col.addWidget(self.cont_meta); col.addWidget(self.cont_bar)
         ch.addLayout(col, 1)
@@ -1130,7 +1139,9 @@ class HomePage(QWidget):
         self.recent_host = QWidget()
         self.recent_layout = QGridLayout(self.recent_host)
         self.recent_layout.setContentsMargins(0, 0, 0, 0)
-        self.recent_layout.setSpacing(10)
+        self.recent_layout.setSpacing(12)
+        self.recent_layout.setColumnStretch(3, 1)
+        self.recent_layout.setRowStretch(2, 1)
         root.addWidget(self.recent_host, 1)
 
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
@@ -1148,6 +1159,23 @@ class HomePage(QWidget):
         actions = QHBoxLayout(); actions.addWidget(open_btn); actions.addWidget(lib_btn); actions.addStretch(1)
         root.addLayout(actions)
 
+    def _cover(self, bid, title, w, h):
+        """Обложка книги или аккуратная заглушка с первой буквой названия."""
+        pm = self.win.deleg.pix(bid)
+        if not pm.isNull():
+            return pm.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pm = QPixmap(w, h)
+        pm.fill(Qt.transparent)
+        from common import ACCENT
+        p = QPainter(pm)
+        p.fillRect(pm.rect(), QColor("#1d2030"))
+        p.setPen(QColor(ACCENT))
+        p.drawRect(pm.rect().adjusted(0, 0, -1, -1))
+        f = QFont(); f.setPointSize(max(12, h // 4)); f.setWeight(QFont.Medium)
+        p.setFont(f); p.drawText(pm.rect(), Qt.AlignCenter, (title or "?")[:1].upper())
+        p.end()
+        return pm
+
     def refresh(self):
         lib = self.win.lib
         rows = lib.q("SELECT id,title,author,progress FROM books "
@@ -1163,11 +1191,7 @@ class HomePage(QWidget):
             self.cont_label.setText(f"{name}{author}")
             self.cont_meta.setText(f"{r['progress'] * 100:.0f}% прочитано")
             self.cont_bar.setRange(0, 100); self.cont_bar.setValue(int(r["progress"] * 100))
-            pm = self.win.deleg.pix(r["id"])
-            if not pm.isNull():
-                self.cont_cover.setPixmap(pm.scaled(72, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            else:
-                self.cont_cover.clear()
+            self.cont_cover.setPixmap(self._cover(r["id"], name, 80, 114))
             self.cont.show()
 
         while self.recent_layout.count():
@@ -1181,14 +1205,13 @@ class HomePage(QWidget):
             hint.setObjectName("HomeSubtle")
             self.recent_layout.addWidget(hint, 0, 0)
         for i, r in enumerate(recent):
-            pm = self.win.deleg.pix(r["id"])
+            title = r["title"] or "Без названия"
             card = QPushButton()
             card.setObjectName("RecentCard")
-            card.setToolTip((r["title"] or "Без названия") + (f" — {r['author']}" if r["author"] else ""))
-            if not pm.isNull():
-                card.setIcon(QIcon(pm.scaled(46, 66, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
-                card.setIconSize(QSize(46, 66))
-            card.setText(f"{(r['title'] or 'Без названия')[:28]}\n{r['progress'] * 100:.0f}%")
+            card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
+            card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
+            card.setIconSize(QSize(56, 82))
+            card.setText(f"{title[:24]}\n{r['progress'] * 100:.0f}% прочитано")
             card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
             self.recent_layout.addWidget(card, i // 3, i % 3)
 
@@ -1559,13 +1582,25 @@ class Win(QMainWindow):
         bar.customContextMenuRequested.connect(self.tab_menu)
         self.book_tabs.setDocumentMode(True)
         self.book_tabs.setMovable(True)
-        self.book_tabs.addTab(self.home, "⌂ Главная")
+        self.book_tabs.addTab(self.home, "Главная")
         self.book_tabs.addTab(central, "Библиотека")
         self.book_tabs.setAccessibleName("Вкладки книг")
         self.book_tabs.tabBar().setAccessibleName("Переключение вкладок")
+        accent = None
+        try:
+            from common import ACCENT
+            accent = ACCENT
+        except Exception:
+            accent = "#5e6ad2"
+        for i, glyph in ((HOME_TAB, "⌂"), (LIB_TAB, "▤")):
+            pm = QPixmap(18, 18); pm.fill(Qt.transparent)
+            p = QPainter(pm); f = QFont(); f.setPointSize(12); p.setFont(f)
+            p.setPen(QColor(accent)); p.drawText(pm.rect(), Qt.AlignCenter, glyph); p.end()
+            self.book_tabs.setTabIcon(i, QIcon(pm))
         self.book_tabs.tabBar().setTabButton(HOME_TAB, QTabBar.RightSide, None)
         self.book_tabs.tabBar().setTabButton(LIB_TAB, QTabBar.RightSide, None)
         plus = QToolButton(); plus.setText("+"); plus.setToolTip("Новая вкладка")
+        plus.setObjectName("NewTab")
         plus.clicked.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
         self.book_tabs.setCornerWidget(plus, Qt.TopRightCorner)
         self.setCentralWidget(self.book_tabs)

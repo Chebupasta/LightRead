@@ -83,16 +83,38 @@ QDockWidget::title {
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
   font-size: %(font.sm)s;
 }
-QTabWidget::pane { border: 0; background: %(bg.canvas)s; top: -1px; border-radius: %(radius.sm)s; }
+QTabWidget::pane {
+  border: 0; border-top: 1px solid %(border.subtle)s;
+  background: %(bg.canvas)s; top: -1px; border-radius: %(radius.sm)s;
+}
+QTabBar { background: transparent; }
 QTabBar::tab {
-  background: transparent; color: %(text.tertiary)s; padding: 6px 12px;
-  border-bottom: 2px solid transparent; margin: 0 2px;
+  background: transparent; color: %(text.tertiary)s;
+  padding: 9px 15px; min-width: 92px; margin: 0;
+  border: 0; border-bottom: 2px solid transparent;
+  border-right: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
 }
+QTabBar::tab:last { border-right: 0; }
 QTabBar::tab:selected {
-  color: %(text.primary)s; border-bottom: 2px solid %(accent.default)s; background: %(bg.panel)s;
+  color: %(text.primary)s; background: %(bg.panel)s;
+  border-bottom: 2px solid %(accent.default)s;
 }
 QTabBar::tab:hover:!selected { color: %(text.primary)s; background: %(bg.hover)s; }
+QTabBar::close-button {
+  subcontrol-position: right; margin-right: 7px;
+  width: 11px; height: 11px; border-radius: 2px;
+}
+QTabBar::close-button:hover { background: %(bg.hover)s; }
+QToolButton#NewTab {
+  background: transparent; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.sm)s; padding: 3px 9px; margin-right: 6px;
+  color: %(text.secondary)s; font-size: %(font.lg)s;
+}
+QToolButton#NewTab:hover {
+  background: %(bg.hover)s; color: %(text.primary)s;
+  border-color: %(accent.default)s;
+}
 
 /* ── Поля ввода ───────────────────────────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextBrowser, QFontComboBox {
@@ -217,32 +239,64 @@ QPushButton#ContinueBtn {
 
 /* ── Главный экран ─────────────────────────────────────────────────── */
 QWidget#HomePage { background: %(bg.canvas)s; }
+QLabel#HomePageTitle {
+  color: %(text.primary)s; font-size: 26px;
+  font-weight: %(font.weight.medium)s; background: transparent;
+}
+QLabel#HomePageHint {
+  color: %(text.tertiary)s; font-size: %(font.md)s; background: transparent;
+}
 QLabel#HomeTitle {
   color: %(text.primary)s; font-size: %(font.xl)s;
-  font-weight: %(font.weight.medium)s;
+  font-weight: %(font.weight.medium)s; background: transparent;
 }
 QLabel#SectionTitle {
   color: %(text.secondary)s; font-size: %(font.lg)s;
-  font-weight: %(font.weight.medium)s;
+  font-weight: %(font.weight.medium)s; background: transparent;
 }
-QLabel#HomeSubtle { color: %(text.tertiary)s; font-size: %(font.sm)s; }
+QLabel#HomeSubtle {
+  color: %(text.tertiary)s; font-size: %(font.sm)s; background: transparent;
+}
+QLabel#ContinueLabel {
+  color: %(text.primary)s; font-size: %(font.lg)s;
+  font-weight: %(font.weight.medium)s; background: transparent;
+}
+QLabel#ContinueMeta { color: %(text.tertiary)s; font-size: %(font.sm)s; background: transparent; }
 QFrame#ContinueCard {
-  background: %(bg.raised)s; border: 1px solid %(border.strong)s;
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-left: 2px solid %(accent.default)s; border-radius: %(radius.md)s;
 }
 QFrame#GoalCard {
-  background: %(bg.raised)s; border: 1px solid %(border.subtle)s;
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s;
 }
-QPushButton#RecentCard {
-  background: %(bg.raised)s; border: 1px solid %(border.subtle)s;
-  border-radius: %(radius.sm)s; padding: 8px;
-  color: %(text.primary)s; font-size: %(font.sm)s; text-align: left;
+QFrame#ContinueCard QProgressBar, QFrame#GoalCard QProgressBar {
+  background: %(bg.field)s; border: 0; border-radius: 2px;
+  chunk: %(accent.default)s;
 }
-QPushButton#RecentCard:hover { background: %(bg.hover)s; border-color: %(accent.default)s; }
+QFrame#ContinueCard QProgressBar::chunk, QFrame#GoalCard QProgressBar::chunk {
+  background: %(accent.default)s; border-radius: 2px;
+}
+QPushButton#RecentCard {
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.md)s; padding: 12px 10px;
+  color: %(text.primary)s; font-size: %(font.md)s; text-align: left;
+  min-height: 116px; max-width: 320px;
+}
+QPushButton#RecentCard:hover {
+  background: %(bg.hover)s; border-color: %(accent.default)s;
+}
+QPushButton#RecentCardSub {
+  background: transparent; border: 0; color: %(text.tertiary)s;
+  font-size: %(font.sm)s;
+}
+QPushButton#ContinueBtn {
+  background: %(accent.default)s; color: %(text.on_accent)s;
+  border: 0; border-radius: %(radius.sm)s; padding: 8px 14px;
+}
 QPushButton#HomeAction {
   background: %(bg.raised)s; border: 1px solid %(border.strong)s;
-  border-radius: %(radius.sm)s; padding: 6px 12px; color: %(text.secondary)s;
+  border-radius: %(radius.sm)s; padding: 7px 14px; color: %(text.secondary)s;
 }
 QPushButton#HomeAction:hover { background: %(bg.hover)s; color: %(text.primary)s; }
 
