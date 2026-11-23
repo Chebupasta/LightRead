@@ -87,18 +87,18 @@ QTabWidget::pane {
   border: 0; border-top: 1px solid %(border.subtle)s;
   background: %(bg.canvas)s; top: -1px; border-radius: %(radius.sm)s;
 }
-QTabBar {
-  background: %(bg.panel)s; border-right: 1px solid %(border.subtle)s;
-}
+QTabBar { background: transparent; }
 QTabBar::tab {
   background: transparent; color: %(text.tertiary)s;
-  padding: 8px 6px; min-width: 48px; max-width: 48px; min-height: 52px;
-  border: 0; border-right: 2px solid transparent; margin: 1px 0;
-  border-radius: %(radius.sm)s 0 0 %(radius.sm)s;
+  padding: 6px 8px; min-width: 38px; margin: 0;
+  border: 0; border-bottom: 2px solid transparent;
+  border-right: 1px solid %(border.subtle)s;
+  border-radius: %(radius.sm)s %(radius.sm)s 0 0;
 }
+QTabBar::tab:last { border-right: 0; }
 QTabBar::tab:selected {
-  color: %(text.primary)s; background: %(bg.hover)s;
-  border-right: 2px solid %(accent.default)s;
+  color: %(text.primary)s; background: %(bg.panel)s;
+  border-bottom: 2px solid %(accent.default)s;
 }
 QTabBar::tab:hover:!selected { color: %(text.primary)s; background: %(bg.hover)s; }
 QTabBar::close-button {
@@ -116,8 +116,8 @@ QToolButton#TabClose:hover {
 }
 QToolButton#NewTab {
   background: transparent; border: 0;
-  border-radius: %(radius.sm)s; padding: 0; margin: 0;
-  color: %(text.secondary)s; font-size: %(font.xl)s; min-width: 48px;
+  border-radius: %(radius.sm)s; padding: 0 14px; margin: 0;
+  color: %(text.secondary)s; font-size: %(font.xl)s;
 }
 QToolButton#NewTab:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
@@ -317,26 +317,6 @@ QPushButton#RecentCard {
 QPushButton#RecentCard:hover {
   background: %(bg.hover)s; border-color: %(accent.default)s;
 }
-QPushButton#FeaturedCard {
-  background: %(bg.panel)s; border: 1px solid %(border.strong)s;
-  border-left: 2px solid %(accent.default)s; border-radius: %(radius.md)s;
-  color: %(text.primary)s; font-size: %(font.md)s; text-align: left;
-  padding: 12px 16px;
-}
-QPushButton#FeaturedCard:hover { background: %(bg.hover)s; }
-QScrollArea#Carousel { background: transparent; border: 0; }
-QPushButton#CarouselCard {
-  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
-  border-radius: %(radius.md)s; color: %(text.primary)s;
-  font-size: %(font.sm)s; text-align: left; padding: 10px;
-}
-QPushButton#CarouselCard:hover { background: %(bg.hover)s; border-color: %(accent.default)s; }
-QToolButton#CarouselArrow {
-  background: %(bg.raised)s; border: 1px solid %(border.subtle)s;
-  border-radius: %(radius.sm)s; color: %(text.secondary)s;
-  font-size: %(font.xl)s; width: 26px; height: 40px;
-}
-QToolButton#CarouselArrow:hover { background: %(bg.hover)s; color: %(text.primary)s; }
 QPushButton#RecentCardSub {
   background: transparent; border: 0; color: %(text.tertiary)s;
   font-size: %(font.sm)s;

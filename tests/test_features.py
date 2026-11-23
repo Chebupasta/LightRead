@@ -863,8 +863,7 @@ class TestHomeAndTabs(unittest.TestCase):
 
     def test_home_has_stats(self):
         self.assertIsNotNone(self.win.home.stats.parent())
-        self.assertTrue({"books", "read", "hours", "marks", "notes", "streak"}.issubset(
-            set(self.win.home.stat_values)))
+        self.assertEqual(set(self.win.home.stat_values), {"read", "hours", "marks", "notes"})
         self.win.home.refresh()
         for value in self.win.home.stat_values.values():
             self.assertNotEqual(value.text(), "—")
@@ -959,7 +958,7 @@ class TestHomeAndTabs(unittest.TestCase):
         reader = self.win.reader
         self.win.assign_group(reader, "ГруппаA")
         index = self.win.book_tabs.indexOf(reader)
-        self.assertIn("ГруппаA", self.win.book_tabs.tabToolTip(index))
+        self.assertIn("ГруппаA", self.win.book_tabs.tabText(index))
         self.assertFalse(self.win.book_tabs.tabIcon(index).isNull())
         reader.close()
         self.win.reopen_closed_tab()

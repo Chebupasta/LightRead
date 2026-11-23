@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
-                                QGraphicsOpacityEffect, QApplication, QStackedWidget, QScrollArea)
+                                QGraphicsOpacityEffect, QApplication, QStackedWidget)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
@@ -1095,18 +1095,16 @@ class AllNotesDialog(QDialog):
 
 
 class HomePage(QWidget):
-    """Главный экран: статистика слева, карусель недавних книг справа."""
+    """Главный экран: продолжить чтение, недавние книги и цель."""
 
     def __init__(self, win):
         super().__init__(win)
         self.win = win
         self.setObjectName("HomePage")
         self.setAccessibleName("Главный экран")
-        root = QHBoxLayout(self)
-        root.setContentsMargins(28, 20, 28, 20)
-        root.setSpacing(24)
-        left = QVBoxLayout(); left.setSpacing(16)
-        right = QVBoxLayout(); right.setSpacing(14)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(30, 22, 30, 22)
+        root.setSpacing(18)
 
         header = QHBoxLayout(); header.setSpacing(8)
         page_title = QLabel("Главная")
@@ -1116,14 +1114,14 @@ class HomePage(QWidget):
         self.page_hint = page_hint
         header.addWidget(page_title); header.addWidget(page_hint, 0, Qt.AlignBottom)
         header.addStretch(1)
-        left.addLayout(header)
+        root.addLayout(header)
 
         rule = QFrame(); rule.setObjectName("HomeDivider"); rule.setFrameShape(QFrame.HLine)
-        left.addWidget(rule)
+        root.addWidget(rule)
 
         title = QLabel("Продолжить чтение")
         title.setObjectName("HomeTitle")
-        left.addWidget(title)
+        root.addWidget(title)
 
         self.cont = QFrame()
         self.cont.setObjectName("ContinueCard")
@@ -1147,7 +1145,7 @@ class HomePage(QWidget):
         btn.clicked.connect(self.win.continue_reading)
         ch.addWidget(btn)
         self.cont.hide()
-        left.addWidget(self.cont)
+        root.addWidget(self.cont)
 
         recent_row = QHBoxLayout(); recent_row.setSpacing(10)
         recent_title = QLabel("Недавние книги")
@@ -1156,52 +1154,32 @@ class HomePage(QWidget):
         all_books.setObjectName("HomeLink")
         all_books.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
         recent_row.addWidget(recent_title); recent_row.addStretch(1); recent_row.addWidget(all_books)
-        right.addLayout(recent_row)
-
-        self.featured = QPushButton()
-        self.featured.setObjectName("FeaturedCard")
-        self.featured.setFixedSize(460, 196)
-        self.featured.clicked.connect(lambda: self._open_recent(0))
-        right.addWidget(self.featured)
-
-        carousel_row = QHBoxLayout(); carousel_row.setSpacing(8)
-        prev_btn = QToolButton(); prev_btn.setText("‹"); prev_btn.setObjectName("CarouselArrow")
-        next_btn = QToolButton(); next_btn.setText("›"); next_btn.setObjectName("CarouselArrow")
-        prev_btn.clicked.connect(lambda: self._scroll_carousel(-1))
-        next_btn.clicked.connect(lambda: self._scroll_carousel(1))
-        self.carousel = QScrollArea(); self.carousel.setObjectName("Carousel")
-        self.carousel.setWidgetResizable(True)
-        self.carousel.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.carousel.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.carousel.setFixedHeight(158)
-        self.carousel_host = QWidget()
-        self.carousel_layout = QHBoxLayout(self.carousel_host)
-        self.carousel_layout.setContentsMargins(0, 0, 0, 0); self.carousel_layout.setSpacing(12)
-        self.carousel_layout.addStretch(1)
-        self.carousel.setWidget(self.carousel_host)
-        self.recent_rows = [self.carousel_layout]
-        carousel_row.addWidget(prev_btn); carousel_row.addWidget(self.carousel, 1); carousel_row.addWidget(next_btn)
-        right.addLayout(carousel_row)
+        root.addLayout(recent_row)
+        self.recent_host = QWidget()
+        host_layout = QVBoxLayout(self.recent_host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        host_layout.setSpacing(12)
+        self.recent_rows = []
+        for _ in range(2):
+            row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(12)
+            self.recent_rows.append(row)
+            host_layout.addLayout(row)
+        host_layout.addStretch(1)
+        root.addWidget(self.recent_host, 1)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
-        sl = QVBoxLayout(self.stats); sl.setContentsMargins(16, 14, 16, 14); sl.setSpacing(12)
-        grid = QGridLayout(); grid.setHorizontalSpacing(14); grid.setVerticalSpacing(10)
+        sl = QHBoxLayout(self.stats); sl.setContentsMargins(16, 12, 16, 12); sl.setSpacing(28)
         self.stat_values = {}
-        metrics = (("books", "Всего книг"), ("read", "Прочитано"), ("reading", "Читаю сейчас"),
-                   ("hours", "Время чтения"), ("pages", "Страниц"), ("streak", "Серия дней"),
-                   ("marks", "Закладки"), ("notes", "Заметки"))
-        for i, (key, caption) in enumerate(metrics):
+        for key, caption in (("read", "Прочитано книг"), ("hours", "Время чтения"),
+                             ("marks", "Закладки"), ("notes", "Заметки")):
             cell = QVBoxLayout(); cell.setSpacing(2)
             value = QLabel("—"); value.setObjectName("StatValue")
             label = QLabel(caption); label.setObjectName("StatCaption")
             cell.addWidget(value); cell.addWidget(label)
-            grid.addLayout(cell, i // 4, i % 4)
+            sl.addLayout(cell)
             self.stat_values[key] = value
-        sl.addLayout(grid)
-        self.heat = StatsHeat({}, 13, self)
-        self.heat.setMaximumHeight(104)
-        sl.addWidget(self.heat)
-        left.addWidget(self.stats)
+        sl.addStretch(1)
+        root.addWidget(self.stats)
 
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
         gl = QHBoxLayout(self.goal); gl.setContentsMargins(14, 12, 14, 12)
@@ -1209,24 +1187,14 @@ class HomePage(QWidget):
         self.goal_bar = QProgressBar(); self.goal_bar.setFixedHeight(3)
         self.goal_bar.setTextVisible(False)
         gl.addWidget(self.goal_label, 1); gl.addWidget(self.goal_bar, 2)
-        left.addWidget(self.goal)
+        root.addWidget(self.goal)
 
         open_btn = QPushButton("Открыть файл…"); open_btn.setObjectName("HomeAction")
         open_btn.clicked.connect(self.win.open_file)
         lib_btn = QPushButton("Перейти в библиотеку"); lib_btn.setObjectName("HomeAction")
         lib_btn.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
         actions = QHBoxLayout(); actions.addWidget(open_btn); actions.addWidget(lib_btn); actions.addStretch(1)
-        left.addLayout(actions)
-        root.addLayout(left, 1)
-        root.addLayout(right, 2)
-
-    def _scroll_carousel(self, delta):
-        bar = self.carousel.horizontalScrollBar()
-        bar.setValue(bar.value() + delta * 264)
-
-    def _open_recent(self, index):
-        if 0 <= index < len(self._recent_ids):
-            self.win.open_book(self._recent_ids[index])
+        root.addLayout(actions)
 
     def _cover(self, bid, title, w, h):
         """Обложка книги или аккуратная заглушка с первой буквой названия."""
@@ -1249,21 +1217,10 @@ class HomePage(QWidget):
         lib = self.win.lib
         total = lib.q("SELECT count(*) c FROM books")[0]["c"]
         self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
-        self.stat_values["books"].setText(str(total))
         self.stat_values["read"].setText(str(lib.q(
             "SELECT count(*) c FROM books WHERE progress>=0.995")[0]["c"]))
-        self.stat_values["reading"].setText(str(lib.q(
-            "SELECT count(*) c FROM books WHERE progress>0.001 AND progress<0.995")[0]["c"]))
-        stat_rows = lib.stats()
-        days = {r["day"]: (r["s"] or 0) for r in stat_rows}
-        self.heat.days = days
-        self.heat.update()
-        self.stat_values["hours"].setText(hms(int(sum(days.values()))))
-        self.stat_values["pages"].setText(str(sum(int(r["p"] or 0) for r in stat_rows)))
-        streak, d = 0, date.today()
-        while days.get(d.isoformat(), 0) > 0:
-            streak += 1; d -= timedelta(days=1)
-        self.stat_values["streak"].setText(str(streak))
+        self.stat_values["hours"].setText(hms(int(lib.q(
+            "SELECT coalesce(sum(seconds),0) s FROM stats")[0]["s"] or 0)))
         self.stat_values["marks"].setText(str(lib.q("SELECT count(*) c FROM marks")[0]["c"]))
         self.stat_values["notes"].setText(str(lib.q("SELECT count(*) c FROM notes")[0]["c"]))
         rows = lib.q("SELECT id,title,author,progress FROM books "
@@ -1283,40 +1240,35 @@ class HomePage(QWidget):
             self.cont_cover.setPixmap(self._cover(r["id"], name, 80, 114))
             self.cont.show()
 
-        while self.carousel_layout.count():
-            item = self.carousel_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-        recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 7")
-        self._recent_ids = [r["id"] for r in recent]
+        for row in self.recent_rows:
+            while row.count():
+                item = row.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
+        recent = lib.q("SELECT id,title,author,progress FROM books ORDER BY last_read DESC LIMIT 6")
         if not recent:
-            self.featured.hide()
             hint = QLabel("Здесь появятся недавно открытые книги")
             hint.setObjectName("HomeSubtle")
-            self.carousel_layout.addWidget(hint)
-        else:
-            first = recent[0]
-            name = first["title"] or "Без названия"
-            self.featured.setToolTip(name)
-            self.featured.setIcon(QIcon(self._cover(first["id"], name, 110, 156)))
-            self.featured.setIconSize(QSize(110, 156))
-            author = (first["author"] or "").split(";")[0]
-            self.featured.setText(f"{name[:34]}\n{author[:34]}\n{first['progress'] * 100:.0f}% прочитано")
-            self.featured.show()
-            for i, r in enumerate(recent[1:]):
-                title = r["title"] or "Без названия"
-                author = (r["author"] or "").split(";")[0]
-                card = QPushButton()
-                card.setFixedSize(236, 140)
-                card.setObjectName("CarouselCard")
-                card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
-                card.setIcon(QIcon(self._cover(r["id"], title, 48, 70)))
-                card.setIconSize(QSize(48, 70))
-                card.setText(f"{title[:22]}\n{author[:22]}\n{r['progress'] * 100:.0f}%")
-                card.clicked.connect(lambda _=False, idx=i + 1: self._open_recent(idx))
-                self.carousel_layout.addWidget(card)
-        self.carousel_layout.addStretch(1)
+            self.recent_rows[0].addWidget(hint)
+        for i, r in enumerate(recent):
+            title = r["title"] or "Без названия"
+            author = (r["author"] or "").split(";")[0]
+            card = QPushButton()
+            card.setFixedSize(300, 132)
+            card.setObjectName("RecentCard")
+            card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
+            card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
+            card.setIconSize(QSize(56, 82))
+            lines = [title[:24]]
+            if author:
+                lines.append(author[:24])
+            lines.append(f"{r['progress'] * 100:.0f}% прочитано")
+            card.setText("\n".join(lines))
+            card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
+            self.recent_rows[i // 3].addWidget(card)
+        for row in self.recent_rows:
+            row.addStretch(1)
 
         goal = int(S.get("daily_goal", 0) or 0)
         today = date.today().isoformat()
@@ -1533,26 +1485,24 @@ class BrowserTabs(QWidget):
         self._plus.setObjectName("NewTab")
         self._plus.setToolTip("Новая вкладка")
         self._plus.setCursor(Qt.ArrowCursor)
-        self._plus.setFixedHeight(48)
         self._bar.setExpanding(False)
         self._bar.setUsesScrollButtons(True)
         self._bar.setElideMode(Qt.ElideRight)
         self._bar.setTabsClosable(True)
-        self._bar.setShape(QTabBar.RoundedWest)
-        self._bar.setFixedWidth(52)
+        self._bar.setFixedHeight(38)
         self._bar.currentChanged.connect(self._on_current)
         self._bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
         self._bar.tabMoved.connect(self._on_moved)
         self._plus.clicked.connect(self.newTabRequested.emit)
 
-        head = QVBoxLayout(); head.setContentsMargins(0, 0, 0, 0); head.setSpacing(0)
-        head.addWidget(self._bar, 0, Qt.AlignTop)
+        head = QHBoxLayout(); head.setContentsMargins(0, 0, 0, 0); head.setSpacing(0)
+        head.addWidget(self._bar, 0, Qt.AlignLeft)
         sep = QFrame(self); sep.setObjectName("HomeDivider")
-        sep.setFixedSize(28, 1)
-        head.addWidget(sep, 0, Qt.AlignHCenter)
-        head.addWidget(self._plus, 0, Qt.AlignTop)
+        sep.setFixedSize(1, 20)
+        head.addWidget(sep, 0, Qt.AlignVCenter)
+        head.addWidget(self._plus, 0, Qt.AlignLeft)
         head.addStretch(1)
-        root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
         root.addLayout(head)
         root.addWidget(self._stack, 1)
 
@@ -1570,9 +1520,7 @@ class BrowserTabs(QWidget):
 
     def addTab(self, widget, text=""):
         i = self._stack.addWidget(widget)
-        self._bar.insertTab(i, "")
-        if text:
-            self._bar.setTabToolTip(i, text)
+        self._bar.insertTab(i, text if text else "")
         if self._bar.count() == 1:
             self._bar.setCurrentIndex(0)
         return i
@@ -2439,7 +2387,7 @@ class Win(QMainWindow):
                 continue
             group = next((g for g, rows in self.groups.items() if w in rows), "")
             title = (w.row["title"] or "Без названия")[:34]
-            self.book_tabs.setTabToolTip(i, f"{group}: {title}" if group else title)
+            self.book_tabs.setTabText(i, f"{group}: {title}" if group else title)
             if group:
                 color = QColor(self.group_colors.get(group, GROUP_COLORS[0]))
                 pm = QPixmap(10, 10); pm.fill(Qt.transparent)
