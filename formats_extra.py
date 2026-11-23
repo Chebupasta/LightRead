@@ -1,5 +1,5 @@
 """Поиск внешних помощников и распаковка/конвертация для «тяжёлых» форматов."""
-import os, re, shutil, subprocess, sys, tempfile, threading, zipfile
+import hashlib, os, re, shutil, subprocess, sys, tempfile, threading, zipfile
 from pathlib import Path
 
 import legacy_office
@@ -324,6 +324,37 @@ def office_to_pdf(path, outdir):
             return str(out)
         _unlink(out)
     return _word_convert_pdf(path, out)
+
+
+def _faithful_pdf(path):
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return None, None
+    from common import CACHE
+    key = hashlib.md5(f"{path}|{st.st_mtime}|{st.st_size}".encode()).hexdigest()[:16]
+    out = Path(CACHE) / "exact" / key
+    return out, out / (Path(path).stem + ".pdf")
+
+
+def office_faithful_cached(path):
+    """Уже готовый PDF точного вида (без конвертации) или пустая строка."""
+    _, pdf = _faithful_pdf(path)
+    if pdf is not None and pdf.is_file() and _valid_pdf(pdf):
+        return str(pdf)
+    return ""
+
+
+def office_faithful_pdf(path):
+    """PDF с точной вёрсткой Office-документа: отдельный кэш по пути и времени файла."""
+    out, pdf = _faithful_pdf(path)
+    if out is None:
+        return None
+    if pdf.is_file() and _valid_pdf(pdf):
+        return str(pdf)
+    out.mkdir(parents=True, exist_ok=True)
+    result = office_to_pdf(path, out)
+    return result if result and _valid_pdf(result) else None
 
 
 def office_to_pptx(path, outdir):

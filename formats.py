@@ -1767,6 +1767,17 @@ def open_source_no_cover(path):
     finally:
         _meta_state.skip_cover = False
 
+
+def open_exact_source(path):
+    """Office-файл с точной вёрсткой: конвертация в PDF и открытие в PDF-режиме."""
+    pdf = _fx.office_faithful_pdf(path)
+    if not pdf:
+        return None
+    try:
+        return open_source(pdf)
+    except Exception:
+        return None
+
 # ══════════ Совместимость Qt6 и качество рендера ══════════
 from common import PDF_LOCK as _PDF_LOCK
 

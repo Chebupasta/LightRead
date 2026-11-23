@@ -441,6 +441,44 @@ class TestOfficeFormats(unittest.TestCase):
         for ext in (".pptx", ".ppt", ".pps", ".ppsx", ".potx", ".odp", ".otp"):
             self.assertIn(ext, formats.ALL_EXTS)
 
+    def test_office_exact_mode_default(self):
+        self.assertTrue(common.S.get("office_pdf"))
+        for ext in ("docx", "doc", "pptx", "ppt", "odp", "odt", "rtf"):
+            self.assertIn(ext, common.OFFICE_FMTS)
+
+    def test_office_faithful_pdf_uses_cache(self):
+        p = TMP / "faithful.docx"
+        p.write_bytes(b"PK\x03\x04")
+        calls = []
+
+        def fake(path, outdir):
+            calls.append(path)
+            out = Path(outdir) / (Path(path).stem + ".pdf")
+            out.write_bytes(b"%PDF-1.7\n")
+            return str(out)
+
+        old = formats_extra.office_to_pdf
+        formats_extra.office_to_pdf = fake
+        try:
+            first = formats_extra.office_faithful_pdf(str(p))
+            second = formats_extra.office_faithful_pdf(str(p))
+            self.assertEqual(first, second)
+            self.assertTrue(first.endswith(".pdf"))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(formats_extra.office_faithful_cached(str(p)), first)
+        finally:
+            formats_extra.office_to_pdf = old
+
+    def test_open_exact_source_falls_back_when_no_converter(self):
+        p = TMP / "noconv.pptx"
+        p.write_bytes(b"PK\x03\x04")
+        old = formats_extra.office_faithful_pdf
+        formats_extra.office_faithful_pdf = lambda path: None
+        try:
+            self.assertIsNone(formats.open_exact_source(str(p)))
+        finally:
+            formats_extra.office_faithful_pdf = old
+
 
 class TestReflowFormatting(unittest.TestCase):
     def test_restyle_reapplies_changed_settings(self):

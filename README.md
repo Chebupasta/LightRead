@@ -31,6 +31,7 @@ LightRead — кроссплатформенная читалка электро
 | PPT/PPS (legacy) | Microsoft PowerPoint или LibreOffice для точного рендера; без них — встроенный текстовый fallback |
 | DOC (legacy) | Microsoft Word, LibreOffice или antiword для точного текста; без них — встроенный текстовый fallback |
 | Точная обложка DOCX/ODT/PPTX/ODP | Microsoft Office (Word/PowerPoint) или LibreOffice (иначе используется встроенный рендер титула) |
+| DOCX/ODT/PPTX/ODP/DOC/PPT «1 в 1» | Microsoft Office или LibreOffice: файл конвертируется в PDF и открывается в PDF-режиме. Отключается настройкой «Office: точный вид через PDF» |
 | AZW3 / HUFF-CDIC | опциональный пакет Python `mobi` |
 
 ## Быстрый старт
