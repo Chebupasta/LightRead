@@ -1,5 +1,5 @@
 """Окно чтения: постоянно видимая панель настройки, навигация, заметки, TTS."""
-import json, re, time, weakref
+import html, json, re, time, weakref
 from collections import OrderedDict
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, QThread, QEventLoop, Signal
@@ -8,7 +8,7 @@ from PySide6.QtGui import (QAction, QDesktopServices, QGuiApplication, QKeySeque
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget, QTreeWidgetItem,
                                QListWidget, QListWidgetItem, QLineEdit, QTextBrowser, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QSlider, QToolBar, QMenu,
-                               QMessageBox, QProgressDialog, QFileDialog, QInputDialog,
+                               QMessageBox, QProgressDialog, QFileDialog, QInputDialog, QDialog,
                                QApplication, QComboBox, QSpinBox, QCheckBox, QPushButton,
                                QListView, QStyledItemDelegate, QStyle, QFontComboBox, QTextEdit)
 
@@ -377,6 +377,11 @@ class Reader(QMainWindow):
         if text:
             QGuiApplication.clipboard().setText(text)
 
+    def show_help(self):
+        win = QApplication.instance().property("main_window")
+        if win is not None and hasattr(win, "hotkeys"):
+            win.hotkeys()
+
     def _build(self):
         tb = QToolBar("Чтение"); tb.setMovable(False); self.addToolBar(tb)
         self.tb_main = tb
@@ -416,6 +421,7 @@ class Reader(QMainWindow):
         QShortcut(QKeySequence("Ctrl+End"), self, lambda: self.view.last())
         QShortcut(QKeySequence("Ctrl+G"), self, lambda: self.pg.setFocus())
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.copy_selection)
+        QShortcut(QKeySequence("F1"), self, self.show_help)
         act("Параметры", self.settings, "F7")
 
         m = self.menuBar().addMenu("Книга")
@@ -1182,14 +1188,22 @@ class Reader(QMainWindow):
 
     def settings(self):
         from ui import SettingsDialog
-        dlg = SettingsDialog(dict(self.st), self)
-        if dlg.exec():
-            self.st.update(dlg.s)
+        win = QApplication.instance().property("main_window")
+        dlg = SettingsDialog(dict(self.st), win or self, live=self.apply)
+
+        def accepted(d):
+            self.st.update(d.s)
             S.update({k: v for k, v in self.st.items() if k in S})
             S.save()
             self.apply({})
             if S["save_per_book"]:
                 self.save_per_book()
+
+        if win is not None and hasattr(win, "open_dialog_tab"):
+            win.open_dialog_tab(dlg, f"Настройки: {(self.row['title'] or 'Книга')[:18]}", accepted)
+            return
+        if dlg.exec():
+            accepted(dlg)
 
     def save_per_book(self):
         keys = ("font_family", "font_size", "bold", "line_spacing", "indent", "para_space", "align",
@@ -1232,9 +1246,27 @@ class Reader(QMainWindow):
 
     def info(self):
         r = self.lib.book(self.bid)
-        QMessageBox.information(self, "О книге",
-                                f"{r['title']}\n\nАвтор: {r['author'] or '—'}\n"
-                                f"Серия: {r['series'] or '—'}\nФормат: {r['fmt'].upper()}\n"
-                                f"Прогресс: {r['progress'] * 100:.1f}%\n"
-                                f"Время чтения: {hms(r['seconds'])}\nФайл: {r['path']}\n\n"
-                                f"{(r['annotation'] or '')[:900]}")
+        win = QApplication.instance().property("main_window")
+        if win is None or not hasattr(win, "open_dialog_tab"):
+            QMessageBox.information(self, "О книге", r["title"] or "")
+            return
+        d = QDialog(win)
+        d.setWindowTitle("О книге")
+        box = QVBoxLayout(d)
+        label = QLabel(f"<h3>{html.escape(r['title'] or '')}</h3>"
+                       f"<p>Автор: {html.escape(r['author'] or '—')}<br>"
+                       f"Серия: {html.escape(r['series'] or '—')}<br>"
+                       f"Формат: {r['fmt'].upper()}<br>"
+                       f"Прогресс: {r['progress'] * 100:.1f}%<br>"
+                       f"Время чтения: {hms(r['seconds'])}<br>"
+                       f"Файл: {html.escape(r['path'] or '')}</p>"
+                       f"<p>{html.escape((r['annotation'] or '')[:900])}</p>")
+        label.setWordWrap(True)
+        label.setAlignment(Qt.AlignTop)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        box.addWidget(label)
+        box.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(d.reject)
+        box.addWidget(bb)
+        win.open_dialog_tab(d, "О книге")

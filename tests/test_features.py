@@ -857,6 +857,17 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.list.doubleClicked.emit(QModelIndex())
         self.win.book_menu(QPoint(-1, -1))
 
+    def test_dialogs_open_inside_main_window(self):
+        from PySide6.QtWidgets import QApplication
+        before = self.win.book_tabs.count()
+        self.win.hotkeys()
+        self.assertEqual(self.win.book_tabs.count(), before + 1)
+        dlg = self.win.book_tabs.widget(before)
+        self.assertIsNotNone(dlg)
+        dlg.reject()
+        QApplication.processEvents()
+        self.assertEqual(self.win.book_tabs.count(), before)
+
     def test_keyboard_shortcuts_registered(self):
         from PySide6.QtGui import QShortcut
         keys = {s.key().toString() for s in self.win.findChildren(QShortcut)}

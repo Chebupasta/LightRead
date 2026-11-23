@@ -227,6 +227,14 @@ QLabel#Chip {
   border-radius: %(radius.sm)s; padding: 2px 7px; font-size: %(font.sm)s;
 }
 QLabel#EmptyState { background: transparent; color: %(text.tertiary)s; font-size: %(font.xl)s; }
+QLabel#ShortcutSheet {
+  background: transparent; color: %(text.secondary)s;
+  font-size: %(font.md)s; padding: 4px 2px;
+}
+QLabel#ShortcutSheet h3 {
+  color: %(text.primary)s; font-size: %(font.lg)s;
+  font-weight: %(font.weight.medium)s; margin: 10px 0 4px;
+}
 
 QFrame#Toast {
   background: %(bg.raised)s; border: 1px solid %(border.strong)s;

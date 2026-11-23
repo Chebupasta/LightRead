@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
-                                QGraphicsOpacityEffect)
+                                QGraphicsOpacityEffect, QApplication)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
@@ -1631,6 +1631,7 @@ class Win(QMainWindow):
         plus.clicked.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
         self.book_tabs.setCornerWidget(plus, Qt.TopRightCorner)
         self.setCentralWidget(self.book_tabs)
+        QApplication.instance().setProperty("main_window", self)
         QShortcut(QKeySequence("Ctrl+Tab"), self, lambda: self.cycle_tab(1))
         QShortcut(QKeySequence("Ctrl+Shift+Tab"), self, lambda: self.cycle_tab(-1))
         QShortcut(QKeySequence("Ctrl+K"), self, self.command_palette)
@@ -1754,15 +1755,32 @@ class Win(QMainWindow):
         self.flt = None
         S.save(); self.reload()
 
+    def ask_text_tab(self, title, placeholder, on_ok):
+        d = QDialog(self)
+        d.setWindowTitle(title)
+        lay = QVBoxLayout(d)
+        edit = QLineEdit(); edit.setPlaceholderText(placeholder)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+
+        def ok():
+            text = edit.text().strip()
+            d.accept()
+            if text:
+                on_ok(text)
+
+        bb.accepted.connect(ok); bb.rejected.connect(d.reject)
+        edit.returnPressed.connect(ok)
+        lay.addWidget(edit); lay.addWidget(bb)
+        self.open_dialog_tab(d, title)
+        return d
+
     def new_coll(self):
-        name, ok = QInputDialog.getText(self, "Коллекция", "Название:")
-        if ok and name.strip():
-            self.lib.new_coll(name.strip()); self.reload()
+        self.ask_text_tab("Коллекция", "Название коллекции",
+                          lambda name: (self.lib.new_coll(name), self.reload()))
 
     def new_tag(self):
-        name, ok = QInputDialog.getText(self, "Метка", "Название метки:")
-        if ok and name.strip():
-            self.lib.new_tag(name.strip()); self.reload()
+        self.ask_text_tab("Метка", "Название метки",
+                          lambda name: (self.lib.new_tag(name), self.reload()))
 
     def reload(self):
         self.build_tree()
@@ -1992,6 +2010,7 @@ class Win(QMainWindow):
             self.open_book(data["id"])
 
     def open_book(self, bid):
+        QApplication.instance().setProperty("main_window", self)
         row = self.lib.book(bid)
         if not row:
             return
@@ -2090,7 +2109,7 @@ class Win(QMainWindow):
             label = f"📖 {title}" + (f" — {r['author']}" if r["author"] else "")
             d.add(label, lambda bid=r["id"]: w.open_book(bid))
         d.fill("")
-        d.exec()
+        self.open_dialog_tab(d, "Команды")
 
     def file_properties(self, bid=None):
         if bid is None:
@@ -2100,7 +2119,7 @@ class Win(QMainWindow):
                 return
             bid = data["id"]
         if self.lib.book(bid):
-            FilePropertiesDialog(self.lib, bid, self).exec()
+            self.open_dialog_tab(FilePropertiesDialog(self.lib, bid, self), "Свойства файла")
 
     def notify(self, text):
         if not hasattr(self, "toast"):
@@ -2324,18 +2343,43 @@ class Win(QMainWindow):
         else:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(p.parent)))
 
+    def open_dialog_tab(self, dlg, title, on_accept=None):
+        """Показать диалог вкладкой главного окна, а не отдельным окном."""
+        prev = self.book_tabs.currentIndex()
+        dlg.setWindowFlags(Qt.Widget)
+        dlg.setAttribute(Qt.WA_DeleteOnClose, False)
+        idx = self.book_tabs.addTab(dlg, title)
+        self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, None)
+        self.book_tabs.setCurrentIndex(idx)
+
+        def finish(code):
+            if code == QDialog.Accepted and on_accept:
+                on_accept(dlg)
+            i = self.book_tabs.indexOf(dlg)
+            if i >= 0:
+                self.book_tabs.removeTab(i)
+            if 0 <= prev < self.book_tabs.count():
+                self.book_tabs.setCurrentIndex(prev)
+            dlg.deleteLater()
+
+        dlg.finished.connect(finish)
+        return dlg
+
     def settings(self):
         d = SettingsDialog(dict(S), self)
-        if d.exec():
-            S.update(d.s); S.save()
+
+        def accepted(dlg):
+            S.update(dlg.s); S.save()
             apply_theme(S["theme"], force=True)
             self.set_view(S["view"]); self.reload()
 
+        self.open_dialog_tab(d, "Настройки", accepted)
+
     def stats(self):
-        StatsDialog(self.lib, self).exec()
+        self.open_dialog_tab(StatsDialog(self.lib, self), "Статистика")
 
     def all_notes(self):
-        AllNotesDialog(self.lib, self).exec()
+        self.open_dialog_tab(AllNotesDialog(self.lib, self), "Все заметки")
 
     def opds(self):
         OpdsDialog(self).exec()
@@ -2423,15 +2467,43 @@ class Win(QMainWindow):
         QMessageBox.information(self, "Готово", "Восстановлено. Перезапустите LightRead.")
 
     def hotkeys(self):
-        QMessageBox.information(self, "Горячие клавиши", """
-<b>Общее</b>: F1 справка · Ctrl+K команды · Ctrl+1…9 вкладка · Ctrl+Tab следующая · Ctrl+Shift+T вернуть вкладку · Alt+←/→ история вкладок
-<b>Библиотека</b>: Ctrl+O открыть · F5 скан · Ctrl+L/Ctrl+F поиск · Ctrl+D вид · Alt+Enter свойства
-<b>Чтение</b>: Space/PgDn вперёд · PgUp назад · Home/End начало/конец текста · Ctrl+Home/End первая/последняя глава
-Ctrl+←/→ глава · Ctrl+G к странице · Ctrl+Shift+C копировать выделение · Ctrl+F поиск · F4 содержание
-Ctrl+B закладка · Ctrl+N заметки · Ctrl+T озвучка · Ctrl+R автопрокрутка · F5 тема · F6 панель · F7 настройки · F10 фокус · F11 полный экран · Ctrl+W закрыть
-<b>Тачпад</b>: два пальца — плавная прокрутка, горизонтальный свайп — листание (включается в настройках), Ctrl+сведение — зум, перетаскивание — панорама.
-<b>PDF</b>: колесо — прокрутка, Ctrl+колесо — зум под курсором, 0 — по ширине, 9 — по странице, +/− — масштаб.
-""")
+        d = QDialog(self)
+        d.setWindowTitle("Горячие клавиши")
+        d.setAccessibleName("Горячие клавиши")
+        lay = QVBoxLayout(d)
+        label = QLabel("""
+<div style="line-height:150%">
+<h3>Общее</h3>
+F1 — справка · Ctrl+K — команды · Ctrl+1…9 — вкладка · Ctrl+Tab — следующая вкладка ·
+Ctrl+Shift+T — вернуть вкладку · Alt+←/→ — история вкладок
+<h3>Библиотека</h3>
+Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+D — вид ·
+Alt+Enter — свойства файла
+<h3>Чтение</h3>
+Space / PgDn — вперёд · PgUp — назад · Home / End — начало / конец текста ·
+Ctrl+Home / Ctrl+End — первая / последняя глава · Ctrl+←/→ — глава ·
+Ctrl+G — к странице · Ctrl+Shift+C — копировать выделение · Ctrl+F — поиск ·
+F4 — содержание · Ctrl+B — закладка · Ctrl+N — заметки · Ctrl+T — озвучка ·
+Ctrl+R — автопрокрутка · F5 — тема · F6 — панель настройки · F7 — настройки ·
+F10 — режим фокуса · F11 — полный экран · Ctrl+W — закрыть
+<h3>Тачпад</h3>
+Два пальца — плавная прокрутка · горизонтальный свайп — листание (настраивается) ·
+Ctrl + сведение — зум · перетаскивание — панорама
+<h3>PDF</h3>
+Колесо — прокрутка · Ctrl+колесо — зум под курсором · 0 — по ширине ·
+9 — по странице · +/− — масштаб
+</div>""")
+        label.setObjectName("ShortcutSheet")
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        label.setAlignment(Qt.AlignTop)
+        lay.addWidget(label)
+        lay.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(d.reject)
+        bb.accepted.connect(d.accept)
+        lay.addWidget(bb)
+        self.open_dialog_tab(d, "Горячие клавиши")
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls():
