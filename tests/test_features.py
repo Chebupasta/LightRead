@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from contextlib import contextmanager
@@ -343,8 +344,10 @@ class TestOfficeFormats(unittest.TestCase):
         pdf = TMP / "bad.pdf"
         pdf.write_bytes(b"<html>")
         self.assertFalse(formats_extra._valid_pdf(pdf))
-        pdf.write_bytes(b"%PDF-1.7\n")
+        pdf.write_bytes(b"%PDF-1.7\n" + b"x" * 300 + b"\n%%EOF\n")
         self.assertTrue(formats_extra._valid_pdf(pdf))
+        pdf.write_bytes(b"%PDF-1.7\ntruncated")
+        self.assertFalse(formats_extra._valid_pdf(pdf))
 
     def test_legacy_doc_text_fallback(self):
         p = TMP / "legacy.doc"
@@ -454,7 +457,7 @@ class TestOfficeFormats(unittest.TestCase):
         def fake(path, outdir):
             calls.append(path)
             out = Path(outdir) / (Path(path).stem + ".pdf")
-            out.write_bytes(b"%PDF-1.7\n")
+            out.write_bytes(b"%PDF-1.7\n" + b"x" * 300 + b"\n%%EOF\n")
             return str(out)
 
         old = formats_extra.office_to_pdf
@@ -533,6 +536,77 @@ class TestReflowFormatting(unittest.TestCase):
         finally:
             view.close()
             src.close()
+
+
+class TestRobustness(unittest.TestCase):
+    def test_settings_dialog_has_tabs(self):
+        dlg = ui.SettingsDialog(dict(common.S))
+        try:
+            self.assertIsNotNone(dlg.tabs.widget(0))
+        finally:
+            dlg.close()
+
+    def test_all_notes_tolerates_null_note(self):
+        db = TMP / f"notesnull_{self.id()}.db"
+        lib = libmod.Library(path=str(db))
+        p = make_book(TMP / f"notesnull_{self.id()}.fb2", "Заметки")
+        bid = lib.upsert(dict(path=str(p), fmt="fb2", title="Заметки", author="", series="",
+                              seq=0, lang="ru", annotation="", genres="",
+                              size=p.stat().st_size, mtime=p.stat().st_mtime))
+        lib.q("INSERT INTO notes(book,chapter,start,end,color,text,note,created,anchor) "
+              "VALUES(?,?,?,?,?,?,?,?,?)", (bid, 0, 0, 1, "#fff", "Цитата", None, 0, ""))
+        dlg = ui.AllNotesDialog(lib)
+        try:
+            self.assertEqual(dlg.list.count(), 1)
+        finally:
+            dlg.close()
+
+    def test_cleanup_faithful_pdfs(self):
+        root = Path(common.CACHE) / "exact" / f"cleanup_{self.id()}"
+        root.mkdir(parents=True, exist_ok=True)
+        content = b"%PDF-1.7\n" + b"x" * 300 + b"\n%%EOF\n"
+        old = root / "old.pdf"
+        new = root / "new.pdf"
+        old.write_bytes(content)
+        new.write_bytes(content)
+        past = time.time() - 40 * 86400
+        os.utime(old, (past, past))
+        removed = formats_extra.cleanup_faithful_pdfs(days=30, max_mb=512)
+        self.assertGreaterEqual(removed, 1)
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists())
+
+        for name in ("big1.pdf", "big2.pdf"):
+            p = root / name
+            with p.open("wb") as f:
+                f.truncate(20 * 1024 * 1024)
+        removed = formats_extra.cleanup_faithful_pdfs(days=30, max_mb=32)
+        self.assertGreaterEqual(removed, 1)
+        left = list(root.glob("*.pdf"))
+        self.assertLessEqual(sum(p.stat().st_size for p in left), 32 * 1024 * 1024)
+
+    def test_invalidate_faithful_pdf_cache(self):
+        p = TMP / f"cachebad_{self.id()}.docx"
+        p.write_bytes(b"PK\x03\x04")
+        calls = []
+
+        def fake(path, outdir):
+            calls.append(path)
+            out = Path(outdir) / (Path(path).stem + ".pdf")
+            out.write_bytes(b"%PDF-1.7\n" + b"x" * 300 + b"\n%%EOF\n")
+            return str(out)
+
+        old = formats_extra.office_to_pdf
+        formats_extra.office_to_pdf = fake
+        try:
+            first = formats_extra.office_faithful_pdf(str(p))
+            self.assertTrue(first)
+            formats_extra.invalidate_faithful_pdf(str(p))
+            self.assertEqual(formats_extra.office_faithful_cached(str(p)), "")
+            self.assertTrue(formats_extra.office_faithful_pdf(str(p)))
+            self.assertEqual(len(calls), 2)
+        finally:
+            formats_extra.office_to_pdf = old
 
 
 def _contrast(a, b):
@@ -736,6 +810,12 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertTrue(any("Библиотека" in t for t in texts))
         self.assertIsNone(self.win.book_tabs.tabBar().tabButton(ui.HOME_TAB, QTabBar.RightSide))
         self.assertIsNone(self.win.book_tabs.tabBar().tabButton(ui.LIB_TAB, QTabBar.RightSide))
+
+    def test_invalid_index_signals_do_not_crash(self):
+        from PySide6.QtCore import QModelIndex, QPoint
+        self.win.list.activated.emit(QModelIndex())
+        self.win.list.doubleClicked.emit(QModelIndex())
+        self.win.book_menu(QPoint(-1, -1))
 
     def test_home_continue_and_recent(self):
         self.win.lib.set_progress(self.bid, 0, 10, 0.4, 10)

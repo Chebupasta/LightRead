@@ -1,5 +1,5 @@
 """Поиск внешних помощников и распаковка/конвертация для «тяжёлых» форматов."""
-import hashlib, os, re, shutil, subprocess, sys, tempfile, threading, zipfile
+import hashlib, os, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
 from pathlib import Path
 
 import legacy_office
@@ -29,7 +29,13 @@ def _valid_zip(path, marker=None):
 def _valid_pdf(path):
     try:
         with open(path, "rb") as f:
-            return f.read(5) == b"%PDF-"
+            if f.read(5) != b"%PDF-":
+                return False
+            f.seek(0, 2)
+            if f.tell() < 200:
+                return False
+            f.seek(max(0, f.tell() - 2048))
+            return b"%%EOF" in f.read()
     except OSError:
         return False
 
@@ -37,6 +43,13 @@ def _valid_pdf(path):
 def _unlink(path):
     try:
         Path(path).unlink()
+    except OSError:
+        pass
+
+
+def _touch(path):
+    try:
+        os.utime(path, None)
     except OSError:
         pass
 
@@ -341,6 +354,7 @@ def office_faithful_cached(path):
     """Уже готовый PDF точного вида (без конвертации) или пустая строка."""
     _, pdf = _faithful_pdf(path)
     if pdf is not None and pdf.is_file() and _valid_pdf(pdf):
+        _touch(pdf)
         return str(pdf)
     return ""
 
@@ -351,10 +365,63 @@ def office_faithful_pdf(path):
     if out is None:
         return None
     if pdf.is_file() and _valid_pdf(pdf):
+        _touch(pdf)
         return str(pdf)
     out.mkdir(parents=True, exist_ok=True)
     result = office_to_pdf(path, out)
     return result if result and _valid_pdf(result) else None
+
+
+def invalidate_faithful_pdf(path):
+    """Удалить испорченный кэш точного вида, чтобы следующее открытие переконвертировало файл."""
+    _, pdf = _faithful_pdf(path)
+    if pdf is not None:
+        _unlink(pdf)
+
+
+def cleanup_faithful_pdfs(days=None, max_mb=None):
+    """Автоочистка кэша точного вида: сначала старые, потом самые давние по размеру."""
+    from common import CACHE, S
+    days = int(days if days is not None else S.get("office_cache_days", 30))
+    max_mb = int(max_mb if max_mb is not None else S.get("office_cache_mb", 512))
+    root = Path(CACHE) / "exact"
+    if not root.is_dir():
+        return 0
+    cutoff = time.time() - max(1, days) * 86400
+    entries = []
+    for sub in root.iterdir():
+        if not sub.is_dir():
+            continue
+        for pdf in sub.glob("*.pdf"):
+            try:
+                st = pdf.stat()
+            except OSError:
+                continue
+            entries.append((max(st.st_mtime, st.st_atime), st.st_size, pdf))
+    removed = 0
+    fresh = []
+    for used, size, pdf in entries:
+        if used < cutoff:
+            _unlink(pdf)
+            if not pdf.exists():
+                removed += 1
+        else:
+            fresh.append((used, size, pdf))
+    total = sum(x[1] for x in fresh)
+    limit = max(32, max_mb) * 1024 * 1024
+    while total > limit and fresh:
+        oldest = min(fresh, key=lambda x: x[0])
+        _unlink(oldest[2])
+        if not oldest[2].exists():
+            removed += 1
+            total -= oldest[1]
+        fresh.remove(oldest)
+    for sub in root.iterdir():
+        try:
+            sub.rmdir()
+        except OSError:
+            pass
+    return removed
 
 
 def office_to_pptx(path, outdir):

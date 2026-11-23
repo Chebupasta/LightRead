@@ -335,7 +335,7 @@ class BookDelegate(QStyledItemDelegate):
 
     def paint(self, p, opt, idx):
         b = idx.data(ROLE)
-        if not b:
+        if not isinstance(b, dict):
             return
         self._sync_theme()
         c = self._c
@@ -452,6 +452,8 @@ SCHEMA_UI = [
         ("brightness", "Яркость", "float", 0.3, 1.0),
         ("hyphenate", "Мягкие переносы (текстовые книги)", "bool"),
         ("office_pdf", "Office: точный вид через PDF (1:1)", "bool"),
+        ("office_cache_days", "Хранить кэш PDF, дней", "int", 1, 365),
+        ("office_cache_mb", "Лимит кэша PDF, МБ", "int", 50, 4096),
     ]),
     ("PDF и сканы", [
         ("pdf_fit", "Подгонка", "choice", ["width", "page", "custom"]),
@@ -498,7 +500,7 @@ class SettingsDialog(QDialog):
         self.resize(min(600, int(g.width() * 0.85)), min(660, int(g.height() * 0.85)))
         self.s, self.live = settings, live
         lay = QVBoxLayout(self)
-        tabs = QTabWidget(); lay.addWidget(tabs)
+        self.tabs = tabs = QTabWidget(); lay.addWidget(tabs)
         for title, rows in SCHEMA_UI:
             w = QWidget(); fl = QFormLayout(w); fl.setSpacing(9)
             for row in rows:
@@ -1054,7 +1056,7 @@ class AllNotesDialog(QDialog):
             if query and query not in hay:
                 continue
             it = QListWidgetItem(f"{r['btitle'] or 'Без названия'}\n"
-                                 f"{r['text'][:90]}\n{r['note'][:120]}")
+                                 f"{(r['text'] or '')[:90]}\n{(r['note'] or '')[:120]}")
             it.setData(Qt.UserRole, dict(r))
             self.list.addItem(it)
 
@@ -1529,8 +1531,8 @@ class Win(QMainWindow):
         self.list.setItemDelegate(self.deleg)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self.book_menu)
-        self.list.doubleClicked.connect(lambda i: self.open_book(i.data(ROLE)["id"]))
-        self.list.activated.connect(lambda i: self.open_book(i.data(ROLE)["id"]))
+        self.list.doubleClicked.connect(self.open_from_index)
+        self.list.activated.connect(self.open_from_index)
         self.set_view(S["view"])
         # пустое состояние: подсказка вместо серого поля
         self.empty = QLabel(self.list.viewport())
@@ -1915,6 +1917,15 @@ class Win(QMainWindow):
             self.fetch_covers()
         return bid
 
+    def _row_data(self, idx):
+        data = idx.data(ROLE) if idx is not None and idx.isValid() else None
+        return data if isinstance(data, dict) else None
+
+    def open_from_index(self, idx):
+        data = self._row_data(idx)
+        if data and data.get("id") is not None:
+            self.open_book(data["id"])
+
     def open_book(self, bid):
         row = self.lib.book(bid)
         if not row:
@@ -2141,6 +2152,9 @@ class Win(QMainWindow):
 
     def reader_closed(self, r):
         try:
+            if r not in self.readers and all(self.book_tabs.widget(i) is not r
+                                             for i in range(self.book_tabs.count())):
+                return
             group = next((g for g, rows in self.groups.items() if r in rows), "")
             self.closed_tabs.append((r.bid, group))
             if len(self.closed_tabs) > 20:
@@ -2166,15 +2180,20 @@ class Win(QMainWindow):
 
     def book_menu(self, pos):
         idx = self.list.indexAt(pos)
-        if not idx.isValid():
+        b = self._row_data(idx)
+        if b is None or b.get("id") is None:
             return
         if idx not in self.list.selectedIndexes():
             self.list.setCurrentIndex(idx)
-        ids = [i.data(ROLE)["id"] for i in self.list.selectedIndexes()]
+        ids = []
+        for i in self.list.selectedIndexes():
+            data = self._row_data(i)
+            if data and data.get("id") is not None:
+                ids.append(data["id"])
         if not ids:
-            ids = [idx.data(ROLE)["id"]]
+            ids = [b["id"]]
         many = len(ids) > 1
-        b = idx.data(ROLE); bid = b["id"]
+        bid = b["id"]
         m = QMenu(self)
         if many:
             m.addAction(f"Выбрано книг: {len(ids)}").setEnabled(False)
@@ -2189,7 +2208,7 @@ class Win(QMainWindow):
         if many:
             m.addAction("В избранное", lambda: ([self.lib.set_field(i, favorite=1) for i in ids], self.reload()))
         else:
-            m.addAction("Избранное", lambda: (self.lib.set_field(bid, favorite=0 if b["favorite"] else 1), self.reload()))
+            m.addAction("Избранное", lambda: (self.lib.set_field(bid, favorite=0 if b.get("favorite") else 1), self.reload()))
         cm = m.addMenu("В коллекцию")
         for c in self.lib.colls():
             cm.addAction(c["name"], lambda cc=c: ([self.lib.coll_add(cc["id"], i) for i in ids], self.reload()))
@@ -2197,7 +2216,7 @@ class Win(QMainWindow):
         m.addSeparator()
         if not many:
             m.addAction("Обновить обложку", lambda: self.refresh_cover(bid))
-            m.addAction("Показать в папке", lambda: self.reveal(b["path"]))
+            m.addAction("Показать в папке", lambda: self.reveal(b.get("path", "")))
         m.addAction("Сбросить прогресс", lambda: ([self.lib.set_progress(i, 0, 0, 0.0) for i in ids], self.reload()))
         m.addAction("Убрать из библиотеки", lambda: ([self.lib.remove(i) for i in ids], self.reload()))
         m.addAction("Удалить файлы…", lambda: self.delete_many(ids) if many else self.delete_file(bid))
