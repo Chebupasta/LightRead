@@ -1613,8 +1613,10 @@ class Win(QMainWindow):
         bar.installEventFilter(self)
         self.book_tabs.setDocumentMode(True)
         self.book_tabs.setMovable(True)
-        self.book_tabs.addTab(self.home, "Главная")
-        self.book_tabs.addTab(central, "Библиотека")
+        self.book_tabs.addTab(self.home, "")
+        self.book_tabs.addTab(central, "")
+        bar.setTabToolTip(HOME_TAB, "Главная")
+        bar.setTabToolTip(LIB_TAB, "Библиотека")
         self.book_tabs.setAccessibleName("Вкладки книг")
         self.book_tabs.tabBar().setAccessibleName("Переключение вкладок")
         accent = None

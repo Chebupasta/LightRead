@@ -845,11 +845,15 @@ class TestHomeAndTabs(unittest.TestCase):
         cls.win.close()
 
     def test_home_tabs(self):
-        texts = [self.win.book_tabs.tabText(i) for i in range(self.win.book_tabs.count())]
-        self.assertTrue(any("Главная" in t for t in texts))
-        self.assertTrue(any("Библиотека" in t for t in texts))
-        self.assertIsNone(self.win.book_tabs.tabBar().tabButton(ui.HOME_TAB, QTabBar.RightSide))
-        self.assertIsNone(self.win.book_tabs.tabBar().tabButton(ui.LIB_TAB, QTabBar.RightSide))
+        bar = self.win.book_tabs.tabBar()
+        self.assertEqual(self.win.book_tabs.tabText(ui.HOME_TAB), "")
+        self.assertEqual(self.win.book_tabs.tabText(ui.LIB_TAB), "")
+        self.assertEqual(bar.tabToolTip(ui.HOME_TAB), "Главная")
+        self.assertEqual(bar.tabToolTip(ui.LIB_TAB), "Библиотека")
+        self.assertFalse(bar.tabIcon(ui.HOME_TAB).isNull())
+        self.assertFalse(bar.tabIcon(ui.LIB_TAB).isNull())
+        self.assertIsNone(bar.tabButton(ui.HOME_TAB, QTabBar.RightSide))
+        self.assertIsNone(bar.tabButton(ui.LIB_TAB, QTabBar.RightSide))
 
     def test_invalid_index_signals_do_not_crash(self):
         from PySide6.QtCore import QModelIndex, QPoint

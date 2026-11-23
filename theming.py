@@ -90,7 +90,7 @@ QTabWidget::pane {
 QTabBar { background: transparent; }
 QTabBar::tab {
   background: transparent; color: %(text.tertiary)s;
-  padding: 9px 15px; min-width: 92px; margin: 0;
+  padding: 9px 12px; min-width: 44px; margin: 0;
   border: 0; border-bottom: 2px solid transparent;
   border-right: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
