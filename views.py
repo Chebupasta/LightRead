@@ -286,7 +286,7 @@ class ReflowView(QWidget):
         self.pages = 1; self.total = 0.0
         self.notes = []; self.sel = None
         self._drag = None; self._text = ""; self.chap = None
-        self._base_formats = None  # исходные блоки до применения настроек чтения
+        self._base_blocks = []  # исходные параметры абзацев до применения настроек чтения
         self._chap_cache = OrderedDict()  # не парсим ZIP/XML заново при возврате к главе
         self._restyle_timer = QTimer(self); self._restyle_timer.setSingleShot(True)
         self._restyle_timer.setInterval(120)
@@ -346,7 +346,14 @@ class ReflowView(QWidget):
         self._style_doc()
         self.doc.setHtml("<body>" + self.chap.html + "</body>")
         self._text = self.doc.toPlainText()
-        self._base_formats = None
+        self._base_blocks = []
+        b0 = self.doc.begin()
+        while b0.isValid():
+            f = b0.blockFormat()
+            self._base_blocks.append((int(f.alignment()), float(f.textIndent()),
+                                      float(f.topMargin()), int(f.headingLevel()),
+                                      b0.textList() is not None))
+            b0 = b0.next()
         self.restyle(pos)
 
     def _style_doc(self):
@@ -367,48 +374,60 @@ class ReflowView(QWidget):
             pos = self.position()[1]
         st = self.st
         self._style_doc()
-        if self._base_formats is None:
-            self._base_formats = []
-            b0 = self.doc.begin()
-            while b0.isValid():
-                self._base_formats.append(b0.blockFormat())
-                b0 = b0.next()
+        cur = QTextCursor(self.doc)
+        cur.select(QTextCursor.Document)
         bf = QTextBlockFormat()
         # В PySide6 6.11 LineHeightTypes — enum, который нельзя привести через int().
         # Берём целое значение явно (совместимо и со старыми версиями).
         prop_height = getattr(QTextBlockFormat.ProportionalHeight, "value",
                               QTextBlockFormat.ProportionalHeight)
         bf.setLineHeight(float(st["line_spacing"]), int(prop_height))
+        cur.mergeBlockFormat(bf)
 
         explicit_mask = int(Qt.AlignHCenter) | int(Qt.AlignRight) | int(Qt.AlignJustify)
+        runs, sig, fmt, run_start, run_end = [], None, None, 0, 0
         b = self.doc.begin()
         idx = 0
         while b.isValid():
-            cb = QTextCursor(b)
-            if idx < len(self._base_formats):
-                cb.setBlockFormat(self._base_formats[idx])
-            cb.mergeBlockFormat(bf)
+            if idx < len(self._base_blocks):
+                align0, indent0, margin0, heading, listed = self._base_blocks[idx]
+            else:
+                fm = b.blockFormat()
+                align0, indent0, margin0 = (int(fm.alignment()), float(fm.textIndent()),
+                                            float(fm.topMargin()))
+                heading, listed = int(fm.headingLevel()), b.textList() is not None
             idx += 1
-            fmt = cb.blockFormat()
             fix = QTextBlockFormat()
-            aligned = int(fmt.alignment()) & explicit_mask
-            heading = fmt.headingLevel()
-            listed = b.textList() is not None
+            fields = []
+            aligned = align0 & explicit_mask
             if heading or listed:
                 fix.setTextIndent(0.0)
+                fields.append(("indent", 0.0))
                 if not aligned:
                     fix.setAlignment(Qt.AlignLeft)
+                    fields.append(("align", int(Qt.AlignLeft)))
                 if heading:
                     fix.setTopMargin(16.0)
                     fix.setBottomMargin(9.0)
+                    fields.extend((("top", 16.0), ("bottom", 9.0)))
             else:
                 if not aligned:
-                    fix.setAlignment(Qt.AlignJustify if st["align"] == "justify" else Qt.AlignLeft)
-                if abs(fmt.textIndent()) < 0.01:
+                    a = Qt.AlignJustify if st["align"] == "justify" else Qt.AlignLeft
+                    fix.setAlignment(a)
+                    fields.append(("align", int(a)))
+                if abs(indent0) < 0.01:
                     fix.setTextIndent(float(st["indent"]))
-                if fmt.topMargin() < 20:
+                    fields.append(("indent", float(st["indent"])))
+                if margin0 < 20:
                     fix.setTopMargin(float(st["para_space"]))
-            QTextCursor(b).mergeBlockFormat(fix)
+                    fields.append(("top", float(st["para_space"])))
+            key = tuple(fields)
+            if key != sig:
+                if sig:
+                    runs.append((run_start, run_end, fmt))
+                sig, fmt = key, fix
+                run_start = b.position()
+            run_end = max(run_start, b.position() + b.length() - 1)
             it = b.begin()
             while not it.atEnd():
                 fr = it.fragment(); cf = fr.charFormat()
@@ -429,6 +448,13 @@ class ReflowView(QWidget):
                         c3.mergeCharFormat(imf)
                 it += 1
             b = b.next()
+        if sig:
+            runs.append((run_start, run_end, fmt))
+        for start, end, block_fmt in runs:
+            c = QTextCursor(self.doc)
+            c.setPosition(start)
+            c.setPosition(end, QTextCursor.KeepAnchor)
+            c.mergeBlockFormat(block_fmt)
 
         cw = self.colw()
         if st["mode"] == "scroll":

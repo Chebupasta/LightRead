@@ -468,6 +468,34 @@ class TestReflowFormatting(unittest.TestCase):
             view.close()
             src.close()
 
+    def test_restyle_covers_all_grouped_blocks(self):
+        from PySide6.QtCore import Qt
+        p = TMP / "restyle_groups.html"
+        p.write_text("<html><body><h2>Заголовок</h2><p>Один</p><p>Два</p>"
+                     "<p>Три</p></body></html>", encoding="utf-8")
+        src = formats.open_source(str(p))
+        st = dict(common.S)
+        st.update({"align": "justify", "indent": 8})
+        view = views.ReflowView(src, st)
+        mask = int(Qt.AlignHCenter) | int(Qt.AlignRight) | int(Qt.AlignJustify)
+        try:
+            view.resize(600, 700)
+            view.load(0)
+            view.st.update({"align": "left", "indent": 0})
+            view.restyle()
+            fmts = []
+            b = view.doc.begin()
+            while b.isValid():
+                fmts.append(b.blockFormat())
+                b = b.next()
+            self.assertGreaterEqual(len(fmts), 4)
+            for fm in fmts:
+                self.assertEqual(int(fm.alignment()) & mask, 0)
+                self.assertAlmostEqual(fm.textIndent(), 0.0)
+        finally:
+            view.close()
+            src.close()
+
 
 def _contrast(a, b):
     def lum(value):
