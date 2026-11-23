@@ -303,7 +303,6 @@ QLabel#StatCaption {
 }
 QFrame#ContinueCard QProgressBar, QFrame#GoalCard QProgressBar {
   background: %(bg.field)s; border: 0; border-radius: 2px;
-  chunk: %(accent.default)s;
 }
 QFrame#ContinueCard QProgressBar::chunk, QFrame#GoalCard QProgressBar::chunk {
   background: %(accent.default)s; border-radius: 2px;

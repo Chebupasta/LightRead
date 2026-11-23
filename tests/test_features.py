@@ -952,28 +952,9 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertTrue(self.win.toast.isVisible())
         self.assertEqual(self.win.toast.label.text(), "тест")
 
-    def test_group_creates_folder_tab(self):
-        self.win.open_book(self.bid)
-        r = self.win.reader
-        self.win.assign_group(r, "ГруппаX")
-        headers = [self.win.book_tabs.widget(i) for i in range(self.win.book_tabs.count())
-                   if getattr(self.win.book_tabs.widget(i), "objectName", lambda: "")() == "TabGroup"]
-        self.assertTrue(headers)
-        header = headers[0]
-        self.assertEqual(header.group_name, "ГруппаX")
-        self.assertEqual(self.win.book_tabs.indexOf(r), self.win.book_tabs.indexOf(header) + 1)
-        header.collapsed = True
-        self.win._apply_group_visibility()
-        self.assertFalse(self.win.book_tabs.tabBar().isTabVisible(self.win.book_tabs.indexOf(r)))
-        r.close()
-
-    def test_group_and_reopen_tab(self):
+    def test_reopen_closed_tab(self):
         self.win.open_book(self.bid)
         reader = self.win.reader
-        self.win.assign_group(reader, "ГруппаA")
-        index = self.win.book_tabs.indexOf(reader)
-        self.assertIn("ГруппаA", self.win.book_tabs.tabText(index))
-        self.assertFalse(self.win.book_tabs.tabIcon(index).isNull())
         reader.close()
         self.win.reopen_closed_tab()
         self.assertIsNotNone(self.win.reader)

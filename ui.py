@@ -28,7 +28,6 @@ from theming import apply_theme, chrome
 EXTS = ALL_EXTS
 ROLE = Qt.UserRole + 1
 _SESSION_RESTORED = False
-GROUP_COLORS = ("#5e6ad2", "#3fb950", "#d29922", "#f85149", "#a371f7", "#58a6ff")
 HOME_TAB, LIB_TAB = 0, 1
 def _book_word(n):
     n10, n100 = n % 10, n % 100
@@ -1428,7 +1427,6 @@ class BrowserTabs(QWidget):
     """Панель вкладок в стиле браузера: полоса вкладок и кнопка «+» рядом с ними."""
 
     currentChanged = Signal(int)
-    tabBarClicked = Signal(int)
     tabCloseRequested = Signal(int)
     newTabRequested = Signal()
 
@@ -1447,7 +1445,6 @@ class BrowserTabs(QWidget):
         self._bar.setTabsClosable(True)
         self._bar.setFixedHeight(38)
         self._bar.currentChanged.connect(self._on_current)
-        self._bar.tabBarClicked.connect(self.tabBarClicked.emit)
         self._bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
         self._bar.tabMoved.connect(self._on_moved)
         self._plus.clicked.connect(self.newTabRequested.emit)
@@ -1567,15 +1564,6 @@ class Win(QMainWindow):
         self.flt = None
         self.scanner = None
         self.covers = None
-        self.groups = {}
-        self.group_colors = {}
-        self._group_headers = {}
-        self._group_lock = False
-        self._hover_group = None
-        self._hover_pos = None
-        self._group_hover_timer = QTimer(self)
-        self._group_hover_timer.setSingleShot(True)
-        self._group_hover_timer.timeout.connect(self._show_hover_menu)
         self.closed_tabs = []
         self._tab_history = []
         self._history_pos = 0
@@ -1606,16 +1594,11 @@ class Win(QMainWindow):
         for bid in ids:
             if self.lib.book(bid):
                 self.open_book(bid)
-        self.groups = {
-            g: [r for r in self.readers if r.bid in [int(x) for x in rows]]
-            for g, rows in dict(S.get("session_groups", {})).items()
-        }
         active = S.get("session_active")
         for r in self.readers:
             if r.bid == active:
                 self.book_tabs.setCurrentWidget(r)
                 break
-        self._refresh_tabs()
 
     def _build(self):
         tb = QToolBar("Библиотека"); tb.setMovable(False); self.addToolBar(tb)
@@ -1649,9 +1632,6 @@ class Win(QMainWindow):
         act("Сетка / Список", self.toggle_view, "Ctrl+D")
         act("Настройки", self.settings, "F7")
         act("Статистика", self.stats)
-        self.group_filter = QComboBox(); self.group_filter.addItem("Все вкладки")
-        self.group_filter.currentTextChanged.connect(self.filter_tabs)
-        tb.addWidget(self.group_filter)
         self.fav_btn = QToolButton(); self.fav_btn.setText("★ Избранное")
         self.fav_btn.setPopupMode(QToolButton.InstantPopup)
         self.fav_menu = QMenu(self.fav_btn)
@@ -1721,7 +1701,7 @@ class Win(QMainWindow):
         self.cont_label = self.home.cont_label
         self.book_tabs = BrowserTabs(self)
         self.book_tabs.tabCloseRequested.connect(self.close_tab)
-        self.book_tabs.newTabRequested.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
+        self.book_tabs.newTabRequested.connect(self.new_tab)
         bar = self.book_tabs.tabBar()
         bar.setContextMenuPolicy(Qt.CustomContextMenu)
         bar.customContextMenuRequested.connect(self.tab_menu)
@@ -1752,7 +1732,6 @@ class Win(QMainWindow):
         props = QShortcut(QKeySequence("Alt+Enter"), self.library_page, self.file_properties)
         props.setContext(Qt.WidgetWithChildrenShortcut)
         self.book_tabs.currentChanged.connect(self.on_tab_changed)
-        self.book_tabs.tabBarClicked.connect(self.on_tab_clicked)
         self.pb = QProgressBar(); self.pb.setMaximumWidth(220); self.pb.hide()
         self.statusBar().addPermanentWidget(self.pb)
 
@@ -1934,26 +1913,6 @@ class Win(QMainWindow):
                 if ev.type() == QEvent.MouseButtonDblClick and bar.tabAt(ev.position().toPoint()) < 0:
                     self.book_tabs.setCurrentIndex(HOME_TAB)
                     return True
-                if ev.type() == QEvent.MouseMove:
-                    idx = bar.tabAt(ev.position().toPoint())
-                    w = self.book_tabs.widget(idx) if idx >= 0 else None
-                    if w is not None and getattr(w, "objectName", lambda: "")() == "TabGroup":
-                        if self._hover_group is not w:
-                            self._hover_group = w
-                            self._hover_pos = ev.globalPosition().toPoint()
-                            self._group_hover_timer.start(350)
-                    else:
-                        self._group_hover_timer.stop()
-                        self._hover_group = None
-                        if getattr(self, "_group_menu", None) is not None:
-                            self._group_menu.close()
-                            self._group_menu = None
-                if ev.type() == QEvent.Leave:
-                    self._group_hover_timer.stop()
-                    self._hover_group = None
-                    if getattr(self, "_group_menu", None) is not None:
-                        self._group_menu.close()
-                        self._group_menu = None
             if obj is self.list.viewport():
                 if ev.type() == QEvent.Resize:
                     self.empty.resize(self.list.viewport().size())
@@ -2206,12 +2165,17 @@ class Win(QMainWindow):
     def reopen_closed_tab(self):
         if not self.closed_tabs:
             return
-        bid, group = self.closed_tabs.pop()
+        bid, _ = self.closed_tabs.pop()
         if not self.lib.book(bid):
             return
         self.open_book(bid)
-        if group and self.reader:
-            self.assign_group(self.reader, group)
+
+    def new_tab(self):
+        """Кнопка `+`: новая вкладка — главная, а если она уже открыта — добавление книги."""
+        if self.book_tabs.currentIndex() == HOME_TAB:
+            self.open_file()
+        else:
+            self.book_tabs.setCurrentIndex(HOME_TAB)
 
     def command_palette(self):
         d = CommandPalette(self)
@@ -2259,8 +2223,6 @@ class Win(QMainWindow):
         self.toast.notify(text)
 
     def on_tab_changed(self, i):
-        if self._group_lock:
-            return
         if self._history_lock:
             return
         if not self._tab_history or self._tab_history[self._history_pos] != i:
@@ -2313,176 +2275,16 @@ class Win(QMainWindow):
             return
         m = QMenu(self)
         m.addAction("Закрыть вкладку", lambda: self.close_tab(i))
-        m.addSeparator()
-        m.addAction("Новая группа…", lambda: self.assign_group(w))
-        for g in self.groups:
-            m.addAction(f"В группу: {g}", lambda g=g, w=w: self.assign_group(w, g))
-        current_group = next((g for g, rows in self.groups.items() if w in rows), "")
-        if current_group:
-            m.addAction("Свернуть/развернуть группу",
-                        lambda g=current_group: self.group_filter.setCurrentText(
-                            "Все вкладки" if self.group_filter.currentText() == g else g))
-            m.addAction("Без группы", lambda: self.assign_group(w, ""))
         m.exec(bar.mapToGlobal(pos))
-
-    def assign_group(self, r, name=None):
-        if name is None:
-            name, ok = QInputDialog.getText(self, "Группа вкладок", "Название группы:")
-            if not ok or not name.strip():
-                return
-            name = name.strip()
-        for other in list(self.groups):
-            rows = self.groups[other]
-            if r in rows:
-                rows.remove(r)
-            if not rows:
-                del self.groups[other]
-        if name:
-            self.groups.setdefault(name, [])
-            if name not in self.group_colors:
-                self.group_colors[name] = GROUP_COLORS[len(self.group_colors) % len(GROUP_COLORS)]
-            self.groups[name].append(r)
-        self._refresh_tabs()
-
-    def _rebuild_group_tabs(self):
-        """Папка группы и её вкладки стоят вместе, как стопка."""
-        if self._group_lock:
-            return
-        signature = tuple((name, tuple(getattr(r, "bid", 0) for r in rows))
-                          for name, rows in self.groups.items())
-        if signature == getattr(self, "_group_signature", None):
-            return
-        self._group_signature = signature
-        collapsed = {name: bool(getattr(h, "collapsed", False))
-                     for name, h in self._group_headers.items()}
-        self._group_lock = True
-        try:
-            for header in list(self._group_headers.values()):
-                idx = self.book_tabs.indexOf(header)
-                if idx >= 0:
-                    self.book_tabs.removeTab(idx)
-                header.deleteLater()
-            self._group_headers.clear()
-            bar = self.book_tabs.tabBar()
-            for name, rows in list(self.groups.items()):
-                rows = [r for r in rows if self.book_tabs.indexOf(r) >= 0]
-                if not rows:
-                    continue
-                header = QWidget(self.book_tabs)
-                header.setObjectName("TabGroup")
-                header.group_name = name
-                header.collapsed = collapsed.get(name, False)
-                color = QColor(self.group_colors.get(name, GROUP_COLORS[0]))
-                pm = QPixmap(12, 12); pm.fill(Qt.transparent)
-                p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
-                p.setPen(Qt.NoPen); p.setBrush(color); p.drawEllipse(2, 2, 8, 8); p.end()
-                idx = self.book_tabs.addTab(header, "")
-                self.book_tabs.setTabIcon(idx, QIcon(pm))
-                self.book_tabs.setTabToolTip(idx, f"Группа: {name}")
-                bar.setTabButton(idx, QTabBar.RightSide, None)
-                self._group_headers[name] = header
-                for r in rows:
-                    old = self.book_tabs.indexOf(r)
-                    target = self.book_tabs.indexOf(header) + 1
-                    if old >= 0 and old != target:
-                        new = target - 1 if old < target else target
-                        bar.moveTab(old, new)
-        finally:
-            self._group_lock = False
-
-    def toggle_group(self, header):
-        self._group_lock = True
-        try:
-            header.collapsed = not header.collapsed
-            self._apply_group_visibility()
-            if not header.collapsed:
-                rows = [r for r in self.groups.get(header.group_name, [])
-                        if self.book_tabs.indexOf(r) >= 0]
-                if rows:
-                    self.book_tabs.setCurrentWidget(rows[0])
-        finally:
-            self._group_lock = False
-
-    def _apply_group_visibility(self):
-        selected = self.group_filter.currentText()
-        for i in range(self.book_tabs.count()):
-            w = self.book_tabs.widget(i)
-            if getattr(w, "objectName", lambda: "")() == "TabGroup":
-                self.book_tabs.tabBar().setTabVisible(i, True)
-                continue
-            if i > LIB_TAB and isinstance(w, Reader):
-                group = next((g for g, rows in self.groups.items() if w in rows), "")
-                header = self._group_headers.get(group)
-                collapsed = bool(header and header.collapsed)
-                show = not collapsed and (selected in ("Все вкладки", group))
-                self.book_tabs.tabBar().setTabVisible(i, show)
-
-    def on_tab_clicked(self, i):
-        w = self.book_tabs.widget(i)
-        if getattr(w, "objectName", lambda: "")() == "TabGroup":
-            self.toggle_group(w)
-
-    def _show_hover_menu(self):
-        header = self._hover_group
-        if header is not None and self._hover_pos is not None:
-            self.show_group_menu(header, self._hover_pos)
-
-    def show_group_menu(self, header, pos):
-        rows = [r for r in self.groups.get(header.group_name, [])
-                if self.book_tabs.indexOf(r) >= 0]
-        if not rows:
-            return
-        if getattr(self, "_group_menu", None) is not None:
-            self._group_menu.close()
-        menu = QMenu(self)
-        for r in rows:
-            title = (r.row["title"] or "Без названия")[:48]
-            menu.addAction(title, lambda rr=r: self.book_tabs.setCurrentWidget(rr))
-        self._group_menu = menu
-        menu.popup(pos)
-
-    def _refresh_tabs(self):
-        current = self.group_filter.currentText()
-        self.group_filter.blockSignals(True)
-        self.group_filter.clear(); self.group_filter.addItem("Все вкладки")
-        self.group_filter.addItems(list(self.groups))
-        self.group_filter.setCurrentText(current if current in ("Все вкладки", *self.groups) else "Все вкладки")
-        self.group_filter.blockSignals(False)
-        self._rebuild_group_tabs()
-        for i in range(LIB_TAB + 1, self.book_tabs.count()):
-            w = self.book_tabs.widget(i)
-            if not isinstance(w, Reader):
-                continue
-            group = next((g for g, rows in self.groups.items() if w in rows), "")
-            title = (w.row["title"] or "Без названия")[:34]
-            self.book_tabs.setTabText(i, f"{group}: {title}" if group else title)
-            if group:
-                color = QColor(self.group_colors.get(group, GROUP_COLORS[0]))
-                pm = QPixmap(10, 10); pm.fill(Qt.transparent)
-                q = QPainter(pm); q.setRenderHint(QPainter.Antialiasing, True)
-                q.setPen(Qt.NoPen); q.setBrush(color); q.drawEllipse(1, 1, 8, 8); q.end()
-                self.book_tabs.setTabIcon(i, QIcon(pm))
-            else:
-                self.book_tabs.setTabIcon(i, QIcon())
-        self._apply_group_visibility()
-
-    def filter_tabs(self, name):
-        self._apply_group_visibility()
 
     def reader_closed(self, r):
         try:
             if r not in self.readers and all(self.book_tabs.widget(i) is not r
                                              for i in range(self.book_tabs.count())):
                 return
-            group = next((g for g, rows in self.groups.items() if r in rows), "")
-            self.closed_tabs.append((r.bid, group))
+            self.closed_tabs.append((r.bid, ""))
             if len(self.closed_tabs) > 20:
                 self.closed_tabs.pop(0)
-            for g in list(self.groups):
-                if r in self.groups[g]:
-                    self.groups[g].remove(r)
-                if not self.groups[g]:
-                    del self.groups[g]
             for i in range(self.book_tabs.count()):
                 if self.book_tabs.widget(i) is r:
                     self.book_tabs.removeTab(i)
@@ -2491,7 +2293,6 @@ class Win(QMainWindow):
                 self.readers.remove(r)
             if self.reader is r:
                 self.reader = self.readers[-1] if self.readers else None
-            self._refresh_tabs()
             self.reload()
         except RuntimeError:
             # Окно уже Destroyed во время выхода приложения.
@@ -2778,7 +2579,6 @@ Ctrl + сведение — зум · перетаскивание — пано�
                 w.stop(); w.wait(2000)
         S["session_tabs"] = [r.bid for r in self.readers]
         S["session_active"] = self.reader.bid if self.reader else None
-        S["session_groups"] = {g: [r.bid for r in rows] for g, rows in self.groups.items()}
         if S.get("webdav_auto"):
             self.sync_upload(quiet=True)
         # Закрываем все окна чтения, чтобы сохранить позиции и статистику.
