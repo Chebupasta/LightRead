@@ -567,6 +567,18 @@ class TestRobustness(unittest.TestCase):
             formats_extra.office_faithful_pdf = old_convert
             host.close()
 
+    def test_remove_clears_book_tags(self):
+        db = TMP / f"tags_{self.id()}.db"
+        lib = libmod.Library(path=str(db))
+        p = make_book(TMP / f"tags_{self.id()}.fb2", "Книга")
+        bid = lib.upsert(dict(path=str(p), fmt="fb2", title="Книга", author="", series="",
+                              seq=0, lang="ru", annotation="", genres="",
+                              size=p.stat().st_size, mtime=p.stat().st_mtime))
+        tid = lib.new_tag("Метка")
+        lib.tag_book(tid, bid, True)
+        lib.remove(bid)
+        self.assertEqual(lib.q("SELECT count(*) c FROM book_tag")[0]["c"], 0)
+
     def test_settings_dialog_has_tabs(self):
         dlg = ui.SettingsDialog(dict(common.S))
         try:
@@ -844,6 +856,30 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.list.activated.emit(QModelIndex())
         self.win.list.doubleClicked.emit(QModelIndex())
         self.win.book_menu(QPoint(-1, -1))
+
+    def test_tab_close_button_follows_its_widget(self):
+        from PySide6.QtWidgets import QApplication
+        b1 = self.win.import_path(str(make_book(TMP / "close_a.fb2", "A")))
+        b2 = self.win.import_path(str(make_book(TMP / "close_b.fb2", "B")))
+        self.win.open_book(b1); r1 = self.win.reader
+        self.win.open_book(b2); r2 = self.win.reader
+        try:
+            i1 = self.win.book_tabs.indexOf(r1)
+            self.win.close_tab(i1)
+            QApplication.processEvents()
+            idx = self.win.book_tabs.indexOf(r2)
+            self.assertGreater(idx, ui.LIB_TAB)
+            btn = self.win.book_tabs.tabBar().tabButton(idx, QTabBar.RightSide)
+            self.assertIsNotNone(btn)
+            btn.click()
+            QApplication.processEvents()
+            self.assertEqual(self.win.book_tabs.indexOf(r2), -1)
+        finally:
+            for r in (r1, r2):
+                idx = self.win.book_tabs.indexOf(r)
+                if idx >= 0:
+                    self.win.close_tab(idx)
+            QApplication.processEvents()
 
     def test_home_continue_and_recent(self):
         self.win.lib.set_progress(self.bid, 0, 10, 0.4, 10)

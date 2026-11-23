@@ -288,7 +288,7 @@ class Library:
                 Path(b["path"]).unlink()
             except OSError:
                 pass
-        for t in ("marks", "notes", "stats", "coll_book"):
+        for t in ("marks", "notes", "stats", "book_tag", "coll_book"):
             col = "book"
             self.x(f"DELETE FROM {t} WHERE {col}=?", (bid,))
         self.x("DELETE FROM books WHERE id=?", (bid,))

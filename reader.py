@@ -1,5 +1,5 @@
 """Окно чтения: постоянно видимая панель настройки, навигация, заметки, TTS."""
-import json, re, time
+import json, re, time, weakref
 from collections import OrderedDict
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, QThread, QEventLoop, Signal
@@ -357,7 +357,14 @@ class Reader(QMainWindow):
         pdf = "" if cancelled[0] else result[0]
         dlg.canceled.disconnect()
         if cancelled[0]:
-            worker.finished.connect(lambda: setattr(self, "_office_worker", None))
+            host = weakref.ref(self)
+
+            def release():
+                win = host()
+                if win is not None:
+                    win._office_worker = None
+
+            worker.finished.connect(release)
         else:
             worker.wait(1000)
             self._office_worker = None

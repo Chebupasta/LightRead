@@ -409,13 +409,13 @@ def cleanup_faithful_pdfs(days=None, max_mb=None):
             fresh.append((used, size, pdf))
     total = sum(x[1] for x in fresh)
     limit = max(32, max_mb) * 1024 * 1024
-    while total > limit and fresh:
-        oldest = min(fresh, key=lambda x: x[0])
-        _unlink(oldest[2])
-        if not oldest[2].exists():
+    for _, size, pdf in sorted(fresh, key=lambda x: x[0]):
+        if total <= limit:
+            break
+        _unlink(pdf)
+        if not pdf.exists():
             removed += 1
-            total -= oldest[1]
-        fresh.remove(oldest)
+            total -= size
     for sub in root.iterdir():
         try:
             sub.rmdir()

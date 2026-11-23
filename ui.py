@@ -30,6 +30,15 @@ ROLE = Qt.UserRole + 1
 _SESSION_RESTORED = False
 GROUP_COLORS = ("#5e6ad2", "#3fb950", "#d29922", "#f85149", "#a371f7", "#58a6ff")
 HOME_TAB, LIB_TAB = 0, 1
+def _book_word(n):
+    n10, n100 = n % 10, n % 100
+    if n10 == 1 and n100 != 11:
+        return "книга"
+    if 2 <= n10 <= 4 and not 12 <= n100 <= 14:
+        return "книги"
+    return "книг"
+
+
 FMT_COLOR = {k: SEMANTIC["dark"]["data." + k] for k in
              ("pdf", "epub", "fb2", "djvu", "docx", "mobi", "azw3", "txt",
               "pptx", "odp", "ppt", "pps", "ppsx", "otp")}
@@ -1101,9 +1110,13 @@ class HomePage(QWidget):
         page_title.setObjectName("HomePageTitle")
         page_hint = QLabel("Ваши книги и прогресс чтения")
         page_hint.setObjectName("HomePageHint")
+        self.page_hint = page_hint
         header.addWidget(page_title); header.addWidget(page_hint, 0, Qt.AlignBottom)
         header.addStretch(1)
         root.addLayout(header)
+
+        rule = QFrame(); rule.setObjectName("HomeDivider"); rule.setFrameShape(QFrame.HLine)
+        root.addWidget(rule)
 
         title = QLabel("Продолжить чтение")
         title.setObjectName("HomeTitle")
@@ -1133,9 +1146,14 @@ class HomePage(QWidget):
         self.cont.hide()
         root.addWidget(self.cont)
 
+        recent_row = QHBoxLayout(); recent_row.setSpacing(10)
         recent_title = QLabel("Недавние книги")
         recent_title.setObjectName("SectionTitle")
-        root.addWidget(recent_title)
+        all_books = QPushButton("Все книги →")
+        all_books.setObjectName("HomeLink")
+        all_books.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
+        recent_row.addWidget(recent_title); recent_row.addStretch(1); recent_row.addWidget(all_books)
+        root.addLayout(recent_row)
         self.recent_host = QWidget()
         self.recent_layout = QGridLayout(self.recent_host)
         self.recent_layout.setContentsMargins(0, 0, 0, 0)
@@ -1166,10 +1184,10 @@ class HomePage(QWidget):
             return pm.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         pm = QPixmap(w, h)
         pm.fill(Qt.transparent)
-        from common import ACCENT
+        col = chrome(theme(S["theme"]))
         p = QPainter(pm)
-        p.fillRect(pm.rect(), QColor("#1d2030"))
-        p.setPen(QColor(ACCENT))
+        p.fillRect(pm.rect(), QColor(col["bg.raised"]))
+        p.setPen(QColor(col["accent.default"]))
         p.drawRect(pm.rect().adjusted(0, 0, -1, -1))
         f = QFont(); f.setPointSize(max(12, h // 4)); f.setWeight(QFont.Medium)
         p.setFont(f); p.drawText(pm.rect(), Qt.AlignCenter, (title or "?")[:1].upper())
@@ -1178,10 +1196,13 @@ class HomePage(QWidget):
 
     def refresh(self):
         lib = self.win.lib
+        total = lib.q("SELECT count(*) c FROM books")[0]["c"]
+        self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
         rows = lib.q("SELECT id,title,author,progress FROM books "
                      "WHERE last_read>0 AND progress>0.001 AND progress<0.995 "
                      "ORDER BY last_read DESC LIMIT 1")
         if not rows:
+            self.win._continue_id = None
             self.cont.hide()
         else:
             r = rows[0]
@@ -1206,12 +1227,17 @@ class HomePage(QWidget):
             self.recent_layout.addWidget(hint, 0, 0)
         for i, r in enumerate(recent):
             title = r["title"] or "Без названия"
+            author = (r["author"] or "").split(";")[0]
             card = QPushButton()
             card.setObjectName("RecentCard")
             card.setToolTip(title + (f" — {r['author']}" if r["author"] else ""))
             card.setIcon(QIcon(self._cover(r["id"], title, 56, 82)))
             card.setIconSize(QSize(56, 82))
-            card.setText(f"{title[:24]}\n{r['progress'] * 100:.0f}% прочитано")
+            lines = [title[:24]]
+            if author:
+                lines.append(author[:24])
+            lines.append(f"{r['progress'] * 100:.0f}% прочитано")
+            card.setText("\n".join(lines))
             card.clicked.connect(lambda _=False, bid=r["id"]: self.win.open_book(bid))
             self.recent_layout.addWidget(card, i // 3, i % 3)
 
@@ -1989,7 +2015,7 @@ class Win(QMainWindow):
         close = QToolButton()
         close.setText("×"); close.setObjectName("TabClose")
         close.setToolTip("Закрыть вкладку"); close.setCursor(Qt.ArrowCursor)
-        close.clicked.connect(lambda _=False, i=idx: self.close_tab(i))
+        close.clicked.connect(lambda _=False, rr=r: self.close_tab(self.book_tabs.indexOf(rr)))
         self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, close)
         self.book_tabs.setCurrentWidget(r)
 

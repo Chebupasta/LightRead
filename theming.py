@@ -254,6 +254,10 @@ QLabel#HomePageTitle {
 QLabel#HomePageHint {
   color: %(text.tertiary)s; font-size: %(font.md)s; background: transparent;
 }
+QFrame#HomeDivider {
+  background: %(border.subtle)s; color: %(border.subtle)s;
+  border: 0; max-height: 1px;
+}
 QLabel#HomeTitle {
   color: %(text.primary)s; font-size: %(font.xl)s;
   font-weight: %(font.weight.medium)s; background: transparent;
@@ -289,7 +293,7 @@ QPushButton#RecentCard {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.md)s; padding: 12px 10px;
   color: %(text.primary)s; font-size: %(font.md)s; text-align: left;
-  min-height: 116px; max-width: 320px;
+  min-height: 128px; max-width: 320px; line-height: 150%%;
 }
 QPushButton#RecentCard:hover {
   background: %(bg.hover)s; border-color: %(accent.default)s;
@@ -302,6 +306,11 @@ QPushButton#ContinueBtn {
   background: %(accent.default)s; color: %(text.on_accent)s;
   border: 0; border-radius: %(radius.sm)s; padding: 8px 14px;
 }
+QPushButton#HomeLink {
+  background: transparent; border: 0; padding: 2px 4px;
+  color: %(accent.default)s; font-size: %(font.sm)s;
+}
+QPushButton#HomeLink:hover { color: %(accent.hover)s; }
 QPushButton#HomeAction {
   background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-radius: %(radius.sm)s; padding: 7px 14px; color: %(text.secondary)s;
