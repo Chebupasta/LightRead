@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget
                                QListView, QStyledItemDelegate, QStyle, QFontComboBox, QTextEdit)
 
 from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK
-from formats import open_source, FormatError, plain
+from formats import open_source, open_source_no_cover, FormatError, plain
 from views import ReflowView, FixedView, pick_font, chapter_text
 from services import Tts, StarDict
 from theming import apply_theme, chrome
@@ -259,7 +259,7 @@ class Reader(QMainWindow):
                 pass
         self.st["theme"] = norm_theme(self.st.get("theme"))
         apply_theme(self.st["theme"], force=True)
-        self.src = open_source(self.row["path"])
+        self.src = open_source_no_cover(self.row["path"])
         self.fixed = bool(self.src.fixed)
         self.view = FixedView(self.src, self.st) if self.fixed else ReflowView(self.src, self.st)
         self.setCentralWidget(self.view)
