@@ -90,7 +90,7 @@ QTabWidget::pane {
 QTabBar { background: transparent; }
 QTabBar::tab {
   background: transparent; color: %(text.tertiary)s;
-  padding: 9px 12px; min-width: 44px; margin: 0;
+  padding: 6px 8px; min-width: 38px; margin: 0;
   border: 0; border-bottom: 2px solid transparent;
   border-right: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
@@ -116,8 +116,8 @@ QToolButton#TabClose:hover {
 }
 QToolButton#NewTab {
   background: transparent; border: 1px solid %(border.subtle)s;
-  border-radius: %(radius.sm)s; padding: 3px 9px; margin-right: 6px;
-  color: %(text.secondary)s; font-size: %(font.lg)s;
+  border-radius: %(radius.sm)s; padding: 0 12px; margin: 0;
+  color: %(text.secondary)s; font-size: %(font.xl)s;
 }
 QToolButton#NewTab:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
@@ -289,6 +289,17 @@ QFrame#ContinueCard {
 QFrame#GoalCard {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s;
+}
+QFrame#StatsCard {
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.md)s;
+}
+QLabel#StatValue {
+  color: %(text.primary)s; font-size: %(font.xl)s;
+  font-weight: %(font.weight.medium)s; background: transparent;
+}
+QLabel#StatCaption {
+  color: %(text.tertiary)s; font-size: %(font.sm)s; background: transparent;
 }
 QFrame#ContinueCard QProgressBar, QFrame#GoalCard QProgressBar {
   background: %(bg.field)s; border: 0; border-radius: 2px;

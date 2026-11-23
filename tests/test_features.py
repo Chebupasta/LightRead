@@ -861,6 +861,13 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.list.doubleClicked.emit(QModelIndex())
         self.win.book_menu(QPoint(-1, -1))
 
+    def test_home_has_stats(self):
+        self.assertIsNotNone(self.win.home.stats.parent())
+        self.assertEqual(set(self.win.home.stat_values), {"read", "hours", "marks", "notes"})
+        self.win.home.refresh()
+        for value in self.win.home.stat_values.values():
+            self.assertNotEqual(value.text(), "—")
+
     def test_dialogs_open_inside_main_window(self):
         from PySide6.QtWidgets import QApplication
         before = self.win.book_tabs.count()

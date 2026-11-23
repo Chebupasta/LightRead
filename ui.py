@@ -1163,6 +1163,20 @@ class HomePage(QWidget):
         self.recent_layout.setRowStretch(2, 1)
         root.addWidget(self.recent_host, 1)
 
+        self.stats = QFrame(); self.stats.setObjectName("StatsCard")
+        sl = QHBoxLayout(self.stats); sl.setContentsMargins(16, 12, 16, 12); sl.setSpacing(28)
+        self.stat_values = {}
+        for key, caption in (("read", "Прочитано книг"), ("hours", "Время чтения"),
+                             ("marks", "Закладки"), ("notes", "Заметки")):
+            cell = QVBoxLayout(); cell.setSpacing(2)
+            value = QLabel("—"); value.setObjectName("StatValue")
+            label = QLabel(caption); label.setObjectName("StatCaption")
+            cell.addWidget(value); cell.addWidget(label)
+            sl.addLayout(cell)
+            self.stat_values[key] = value
+        sl.addStretch(1)
+        root.addWidget(self.stats)
+
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
         gl = QHBoxLayout(self.goal); gl.setContentsMargins(14, 12, 14, 12)
         self.goal_label = QLabel(); self.goal_label.setObjectName("HomeSubtle")
@@ -1199,6 +1213,12 @@ class HomePage(QWidget):
         lib = self.win.lib
         total = lib.q("SELECT count(*) c FROM books")[0]["c"]
         self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
+        self.stat_values["read"].setText(str(lib.q(
+            "SELECT count(*) c FROM books WHERE progress>=0.995")[0]["c"]))
+        self.stat_values["hours"].setText(hms(int(lib.q(
+            "SELECT coalesce(sum(seconds),0) s FROM stats")[0]["s"] or 0)))
+        self.stat_values["marks"].setText(str(lib.q("SELECT count(*) c FROM marks")[0]["c"]))
+        self.stat_values["notes"].setText(str(lib.q("SELECT count(*) c FROM notes")[0]["c"]))
         rows = lib.q("SELECT id,title,author,progress FROM books "
                      "WHERE last_read>0 AND progress>0.001 AND progress<0.995 "
                      "ORDER BY last_read DESC LIMIT 1")
@@ -1625,15 +1645,17 @@ class Win(QMainWindow):
             accent = ACCENT
         except Exception:
             accent = "#5e6ad2"
+        bar.setIconSize(QSize(22, 22))
         for i, glyph in ((HOME_TAB, "⌂"), (LIB_TAB, "▤")):
-            pm = QPixmap(18, 18); pm.fill(Qt.transparent)
-            p = QPainter(pm); f = QFont(); f.setPointSize(12); p.setFont(f)
+            pm = QPixmap(22, 22); pm.fill(Qt.transparent)
+            p = QPainter(pm); f = QFont(); f.setPointSize(15); p.setFont(f)
             p.setPen(QColor(accent)); p.drawText(pm.rect(), Qt.AlignCenter, glyph); p.end()
             self.book_tabs.setTabIcon(i, QIcon(pm))
         self.book_tabs.tabBar().setTabButton(HOME_TAB, QTabBar.RightSide, None)
         self.book_tabs.tabBar().setTabButton(LIB_TAB, QTabBar.RightSide, None)
+        bar.setFixedHeight(38)
         plus = QToolButton(); plus.setText("+"); plus.setToolTip("Новая вкладка")
-        plus.setObjectName("NewTab")
+        plus.setObjectName("NewTab"); plus.setFixedHeight(38)
         plus.clicked.connect(lambda: self.book_tabs.setCurrentIndex(HOME_TAB))
         self.book_tabs.setCornerWidget(plus, Qt.TopRightCorner)
         self.setCentralWidget(self.book_tabs)
