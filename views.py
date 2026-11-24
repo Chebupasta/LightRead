@@ -463,8 +463,12 @@ class ReflowView(QWidget):
             self.doc.setPageSize(QSizeF(cw, self.page_h()))
             self.pages = max(1, self.doc.pageCount())
             self.total = self.pages * self.page_h()
+        sel = self.sel
+        if sel:
+            limit = max(0, len(getattr(self, "_text", "")))
+            sel = (max(0, min(sel[0], limit)), max(0, min(sel[1], limit)))
         self.apply_notes()
-        self.sel = None
+        self.sel = sel
         self.goto_pos(pos)
 
     def apply_notes(self):
@@ -811,13 +815,6 @@ class FixedView(QWidget):
         self._sync_bars()
         self.update()
 
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        if self._layout:
-            self._relayout()
-            self._sync_bars()
-            QTimer.singleShot(0, self._center_and_update)
-
     def _center_x(self):
         if self._layout:
             self.ox = max(0.0, self._layout[0].center().x() - self._view_w() / 2.0)
@@ -1128,8 +1125,9 @@ class FixedView(QWidget):
                 if img is None and not self.engine.path:
                     img = self.engine.sync_render(i, pw, ph, inv)
                 if img is not None and not img.isNull():
-                    p.drawPixmap(QRectF(sx, sy, r.width(), r.height()),
-                                 self._pixmap(key, img, dpr), QRectF(0, 0, img.width(), img.height()))
+                    pm = self._pixmap(key, img, dpr)
+                    p.drawPixmap(QRectF(sx, sy, r.width(), r.height()), pm,
+                                 QRectF(0, 0, pm.width(), pm.height()))
                 else:
                     last = self._last.get((i, inv))
                     if last is not None and not last.isNull():
@@ -1157,8 +1155,8 @@ class FixedView(QWidget):
         finally:
             p.end()
 
-    def resizeEvent(self, _):
-        self._place_bars()
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
         self._apply_fit()
 
     # ── ввод ──

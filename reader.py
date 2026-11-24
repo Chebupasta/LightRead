@@ -2,13 +2,13 @@
 import html, json, re, time, weakref
 from collections import OrderedDict
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, QThread, QEventLoop, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QSize, QRect, QThread, QEventLoop, Signal
 from PySide6.QtGui import (QAction, QDesktopServices, QGuiApplication, QKeySequence, QIcon,
                            QPixmap, QPainter, QColor, QFont, QPen, QShortcut)
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QTabWidget, QTreeWidget, QTreeWidgetItem,
                                QListWidget, QListWidgetItem, QLineEdit, QTextBrowser, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QSlider, QToolBar, QMenu,
-                               QMessageBox, QProgressDialog, QFileDialog, QInputDialog, QDialog,
+                               QMessageBox, QProgressDialog, QFileDialog, QInputDialog, QDialog, QDialogButtonBox,
                                QApplication, QComboBox, QSpinBox, QCheckBox, QPushButton,
                                QListView, QStyledItemDelegate, QStyle, QFontComboBox, QTextEdit)
 
@@ -333,6 +333,7 @@ class Reader(QMainWindow):
         self._clock = QTimer(self); self._clock.setInterval(20000)
         self._clock.timeout.connect(self.on_changed); self._clock.start()
         self.view.restore(self.row["chapter"], self.row["pos"])
+        self._progress0 = self.view.progress()
         QTimer.singleShot(60, self.on_changed)
         self.view.setFocus()
 
@@ -699,7 +700,7 @@ class Reader(QMainWindow):
                          color=HL[0], text=self.view.page_text()[:160], note=text)
             self.lib.note_add(self.bid, d["chapter"], d["start"], d["end"],
                               d["color"], d["text"], text, anchor=_plain_text(d.get("text", ""))[:240])
-            self._edit_note_id = None
+        self._edit_note_id = None
         self.note_edit.clear()
         drafts = dict(S.get("note_drafts") or {})
         drafts.pop(str(self.bid), None)
@@ -771,6 +772,7 @@ class Reader(QMainWindow):
 
     def on_zoom(self, pct):
         self.st["pdf_zoom"] = int(pct)
+        self.st["pdf_fit"] = self.view.st.get("pdf_fit", self.st["pdf_fit"])
         self.tune.sync(self.st)
 
     def page_jump(self, v):
@@ -784,7 +786,8 @@ class Reader(QMainWindow):
     def slider_move(self, v):
         f = v / 1000
         if self.fixed:
-            self.view.goto(int(f * self.view.count))
+            page = int(f * self.view.count) - 1
+            self.view.goto(max(0, min(self.view.count - 1, page)))
         else:
             ch = min(self.src.count - 1, int(f * self.src.count))
             # Не перезагружаем главу, если она уже открыта: это дёшево и дёргает
@@ -802,7 +805,7 @@ class Reader(QMainWindow):
         main = self.window()
         if main is not self and getattr(main, "_reading_full", False):
             main.reader_fullscreen(self)
-        for timer in (self._save, self._auto, self._clock):
+        for timer in self.findChildren(QTimer):
             if timer.isActive():
                 timer.stop()
         self.save_draft()
@@ -810,7 +813,8 @@ class Reader(QMainWindow):
         self.tts.stop()
         self._tts_clear()
         secs = time.time() - self.t0
-        pages = 1 if self.fixed else max(0, self.view.position()[1] - self._pos0) // 1800
+        pages = 1 if self.fixed else max(0, int((self.view.progress() - self._progress0)
+                                                 * max(1, self.src.count)))
         self.lib.stats_add(self.bid, secs, pages)
         try:
             self.view.shutdown()
@@ -956,7 +960,10 @@ class Reader(QMainWindow):
             return
         if not self.dock.isVisible() or self.tabs.currentIndex() != 3:
             self.open_panel(3)
-        self._hit_i = (self._hit_i + d) % n
+        if self._hit_i < 0:
+            self._hit_i = 0 if d > 0 else n - 1
+        else:
+            self._hit_i = (self._hit_i + d) % n
         it = self.sres.item(self._hit_i)
         self.sres.setCurrentItem(it)
         self.search_click(it)
@@ -1146,6 +1153,10 @@ class Reader(QMainWindow):
             from common import DEFAULTS
             keys = [k for k in self.tune.widgets] + ["bold", "align", "para_space", "gap"]
             self.st.update({k: DEFAULTS[k] for k in keys if k in DEFAULTS})
+            if S.get("theme") != self.st["theme"]:
+                S["theme"] = self.st["theme"]
+                S.save()
+                apply_theme(self.st["theme"], force=True)
             self.apply({})
             return
         self.st[key] = value
@@ -1190,10 +1201,11 @@ class Reader(QMainWindow):
         from ui import SettingsDialog
         win = QApplication.instance().property("main_window")
         dlg = SettingsDialog(dict(self.st), win or self, live=self.apply)
+        initial = dict(dlg.s)
 
         def accepted(d):
             self.st.update(d.s)
-            S.update({k: v for k, v in self.st.items() if k in S})
+            S.update({k: v for k, v in d.s.items() if k in S and v != initial.get(k)})
             S.save()
             self.apply({})
             if S["save_per_book"]:
