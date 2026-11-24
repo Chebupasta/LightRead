@@ -248,7 +248,13 @@ def _translate(obj, getter, setter, prop="_lr_text"):
         obj.setProperty(prop, original)
     if not isinstance(original, str):
         return
-    setter(original if S.get("language", "ru") == "ru" else T.get(original, original))
+    # сам перевод не должен вызывать логику виджета (например, запись настройки)
+    blocked = obj.signalsBlocked()
+    obj.blockSignals(True)
+    try:
+        setter(original if S.get("language", "ru") == "ru" else T.get(original, original))
+    finally:
+        obj.blockSignals(blocked)
 
 
 class _DialogLanguageFilter(QObject):
@@ -279,6 +285,7 @@ def apply_language(root):
         return
     _ensure_filter()
     widgets = [root] + list(root.findChildren(QWidget))
+    ru = S.get("language", "ru") == "ru"
     for w in widgets:
         if isinstance(w, QLabel) or isinstance(w, (QPushButton, QToolButton, QCheckBox, QGroupBox)):
             _translate(w, w.text, w.setText)
@@ -291,9 +298,12 @@ def apply_language(root):
             if original is None:
                 original = [w.itemText(i) for i in range(w.count())]
                 w.setProperty("_lr_items", original)
-            for i, text in enumerate(original):
-                w.setItemText(i, text if S.get("language", "ru") == "ru" else T.get(text, text))
-        ru = S.get("language", "ru") == "ru"
+            blocked = w.signalsBlocked(); w.blockSignals(True)
+            try:
+                for i, text in enumerate(original):
+                    w.setItemText(i, text if ru else T.get(text, text))
+            finally:
+                w.blockSignals(blocked)
         if isinstance(w, QTabWidget):
             original = w.property("_lr_tabs")
             if original is None or len(original) != w.count():
@@ -301,11 +311,15 @@ def apply_language(root):
                 original = [original[i] if i < len(original) else w.tabText(i)
                             for i in range(w.count())]
                 w.setProperty("_lr_tabs", original)
-            for i in range(w.count()):
-                tab_widget = w.widget(i)
-                canonical = tab_widget.property("_lr_tab_title") if tab_widget is not None else None
-                text = canonical if canonical is not None else original[i]
-                w.setTabText(i, text if ru else T.get(text, text))
+            blocked = w.signalsBlocked(); w.blockSignals(True)
+            try:
+                for i in range(w.count()):
+                    tab_widget = w.widget(i)
+                    canonical = tab_widget.property("_lr_tab_title") if tab_widget is not None else None
+                    text = canonical if canonical is not None else original[i]
+                    w.setTabText(i, text if ru else T.get(text, text))
+            finally:
+                w.blockSignals(blocked)
         elif isinstance(w, QTabBar):
             original = w.property("_lr_tabs")
             if original is None or len(original) != w.count():
@@ -313,8 +327,12 @@ def apply_language(root):
                 original = [original[i] if i < len(original) else w.tabText(i)
                             for i in range(w.count())]
                 w.setProperty("_lr_tabs", original)
-            for i, text in enumerate(original):
-                w.setTabText(i, text if ru else T.get(text, text))
+            blocked = w.signalsBlocked(); w.blockSignals(True)
+            try:
+                for i, text in enumerate(original):
+                    w.setTabText(i, text if ru else T.get(text, text))
+            finally:
+                w.blockSignals(blocked)
     # у QMenu текст пункта в менюбаре привязан к заголовку меню — переводим его явно
     bars = root.findChildren(QMenuBar)
     if isinstance(root, QMenuBar):

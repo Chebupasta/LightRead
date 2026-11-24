@@ -606,6 +606,32 @@ class TestRobustness(unittest.TestCase):
         finally:
             dlg.close()
 
+    def test_settings_choices_survive_translation(self):
+        from PySide6.QtWidgets import QComboBox
+        from common import THEMES
+        common.S["language"] = "en"
+        try:
+            dlg = ui.SettingsDialog(dict(common.S))
+            try:
+                combos = dlg.findChildren(QComboBox)
+                theme = next(c for c in combos
+                             if set(str(c.itemData(i)) for i in range(c.count())) >= set(THEMES))
+                lang = next(c for c in combos
+                            if [c.itemData(i) for i in range(c.count())] == ["ru", "en"])
+                before = dict(dlg.s)
+                i18n.apply_language(dlg)
+                self.assertEqual(dlg.s["theme"], before["theme"])
+                self.assertEqual(dlg.s["language"], before["language"])
+                theme.setCurrentIndex((theme.currentIndex() + 1) % theme.count())
+                self.assertIn(dlg.s["theme"], THEMES)
+                self.assertEqual(dlg.s["theme"], theme.currentData())
+                lang.setCurrentIndex(0)
+                self.assertEqual(dlg.s["language"], "ru")
+            finally:
+                dlg.close()
+        finally:
+            common.S["language"] = "ru"
+
     def test_all_notes_delete(self):
         from PySide6.QtWidgets import QMessageBox
         db = TMP / f"notes_del_{self.id()}.db"

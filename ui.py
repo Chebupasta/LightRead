@@ -627,15 +627,17 @@ class SettingsDialog(QDialog):
                     e = QCheckBox(); e.setChecked(bool(val))
                     e.toggled.connect(lambda v, k=key: self.set(k, v))
                 elif kind == "choice":
-                    e = QComboBox(); e.addItems([str(x) for x in row[3]])
-                    if key == "language":
-                        e.setCurrentText("Русский" if val == "ru" else "English")
-                        e.currentTextChanged.connect(
-                            lambda v, k=key: self.set(k, "ru" if v == "Русский" else "en"))
-                    else:
-                        e.setCurrentText(str(val))
-                        e.currentTextChanged.connect(
-                            lambda v, k=key, o=row[3]: self.set(k, type(o[0])(v) if isinstance(o[0], (int, float)) else v))
+                    # значение хранится в itemData: перевод подписей не должен менять саму настройку
+                    e = QComboBox()
+                    for x in row[3]:
+                        label = str(x)
+                        e.addItem(label, "ru" if key == "language" and label == "Русский" else
+                                  "en" if key == "language" else x)
+                    idx = e.findData(val)
+                    if idx >= 0:
+                        e.setCurrentIndex(idx)
+                    e.currentIndexChanged.connect(
+                        lambda _i, k=key, combo=e: self.set(k, combo.currentData()))
                 elif kind == "font":
                     e = QFontComboBox(); e.setCurrentFont(QFont(val or QFont().family()))
                     e.currentFontChanged.connect(lambda f, k=key: self.set(k, f.family()))
