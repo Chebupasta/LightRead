@@ -571,6 +571,11 @@ class Reader(QMainWindow):
         self.menuBar().setVisible(vis)
         self.statusBar().setVisible(vis)
         self.tune_host.setVisible(vis and self.st["tune_visible"])
+        if vis:
+            self.dock.setVisible(getattr(self, "_dock_before_focus", True))
+        else:
+            self._dock_before_focus = self.dock.isVisible()
+            self.dock.hide()
         if hasattr(self, "a_focus"):
             self.a_focus.setChecked(not vis)
 
