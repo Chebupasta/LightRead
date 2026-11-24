@@ -963,6 +963,19 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertTrue(self.win.toast.isVisible())
         self.assertEqual(self.win.toast.label.text(), "тест")
 
+    def test_share_quote_and_random_book(self):
+        from PySide6.QtWidgets import QApplication
+        self.win.open_book(self.bid)
+        r = self.win.reader
+        r.share_quote()
+        self.assertIn("Тестовая книга", QApplication.clipboard().text())
+        self.win.open_random_book()
+        self.assertIsNotNone(self.win.reader)
+        for reader in list(self.win.readers):
+            if reader is not r:
+                reader.close()
+        r.close()
+
     def test_reopen_closed_tab(self):
         self.win.open_book(self.bid)
         reader = self.win.reader

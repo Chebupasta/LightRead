@@ -385,6 +385,44 @@ class Reader(QMainWindow):
         if text:
             QGuiApplication.clipboard().setText(text)
 
+    def share_quote(self):
+        text = getattr(self.view, "selection_text", lambda: "")().strip()
+        if not text:
+            text = getattr(self.view, "page_text", lambda: "")()[:400].strip()
+        if not text:
+            self.statusBar().showMessage("Выделите текст или откройте страницу с текстом", 2500)
+            return
+        ch, _ = self.view.position()
+        title = self.row["title"] or "Без названия"
+        author = self.row["author"] or ""
+        quote = f"«{text}»\n— {title}" + (f", {author}" if author else "") + f" (глава {ch + 1})"
+        QGuiApplication.clipboard().setText(quote)
+        self.statusBar().showMessage("Цитата скопирована в буфер", 2500)
+        self.notify("Цитата скопирована")
+
+    def share_link(self):
+        QGuiApplication.clipboard().setText(Path(self.row["path"]).resolve().as_uri())
+        self.statusBar().showMessage("Ссылка на книгу скопирована", 2500)
+        self.notify("Ссылка скопирована")
+
+    def print_book(self):
+        from PySide6.QtPrintSupport import QPrinter, QPrintDialog
+        printer = QPrinter(QPrinter.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        if self.fixed:
+            painter = QPainter(printer)
+            try:
+                img = self.src.render(self.view.page, QSize(1400, 1900))
+                if img is not None and not img.isNull():
+                    painter.drawImage(QRectF(printer.pageRect()), img)
+            finally:
+                painter.end()
+        else:
+            self.view.doc.print_(printer)
+        self.statusBar().showMessage("Отправлено на печать", 2500)
+
     def show_help(self):
         win = QApplication.instance().property("main_window")
         if win is not None and hasattr(win, "hotkeys"):
@@ -437,6 +475,9 @@ class Reader(QMainWindow):
         m.addAction("Сохранить настройки для этой книги", self.save_per_book)
         m.addAction("Сбросить настройки книги", self.clear_per_book)
         m.addAction("Экспорт заметок…", self.export_notes)
+        m.addAction("Поделиться цитатой…", self.share_quote)
+        m.addAction("Ссылка на книгу", self.share_link)
+        m.addAction("Печать…", self.print_book, QKeySequence("Ctrl+P"))
         m.addSeparator()
         for mins in (15, 30, 60):
             m.addAction(f"Таймер сна: {mins} мин", lambda mm=mins: self.sleep(mm))

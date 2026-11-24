@@ -1754,6 +1754,7 @@ class Win(QMainWindow):
         m.addAction("Догрузить обложки", self.fetch_covers)
         m.addAction("Все заметки…", self.all_notes)
         m.addAction("Искать по всем книгам…", self.global_search, QKeySequence("Ctrl+Shift+F"))
+        m.addAction("Случайная книга", self.open_random_book, QKeySequence("Ctrl+Shift+R"))
         m.addAction("Свойства файла…", self.file_properties, QKeySequence("Alt+Enter"))
         if S.get("show_network"):
             m.addAction("OPDS-каталоги…", self.opds)
@@ -2289,6 +2290,14 @@ class Win(QMainWindow):
             return
         self.open_book(bid)
 
+    def open_random_book(self):
+        current = self.reader.bid if getattr(self, "reader", None) else -1
+        rows = self.lib.q("SELECT id FROM books WHERE id<>? ORDER BY RANDOM() LIMIT 1", (current,))
+        if not rows:
+            rows = self.lib.q("SELECT id FROM books ORDER BY RANDOM() LIMIT 1")
+        if rows:
+            self.open_book(rows[0]["id"])
+
     def global_search(self):
         """Поиск по содержимому всех книг с переходом к найденному месту."""
         panel = QDialog(self)
@@ -2712,7 +2721,7 @@ F1 — справка · Ctrl+K — команды · Ctrl+1…9 — вклад�
 Ctrl+Shift+T — вернуть вкладку · Alt+←/→ — история вкладок ·
 Средняя кнопка по вкладке — закрыть · двойной клик по пустому месту — главная
 <h3>Библиотека</h3>
-Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+Shift+F — поиск по всем книгам · Ctrl+D — вид ·
+Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+Shift+F — поиск по всем книгам · Ctrl+Shift+R — случайная книга · Ctrl+P — печать · Ctrl+D — вид ·
 F9 — дерево библиотеки · Alt+Enter — свойства файла
 <h3>Чтение</h3>
 Space / PgDn — вперёд · PgUp — назад · Home / End — начало / конец текста ·
