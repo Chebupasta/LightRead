@@ -521,11 +521,16 @@ SCHEMA_UI = [
         ("render_scale", "Резкость рендера", "choice", [1.0, 1.5, 2.0]),
     ]),
     ("Тема", [("theme", "Тема чтения", "choice", list(THEMES)),
-              ("accent", "Акцентный цвет", "choice", list(ACCENTS))]),
+              ("accent", "Акцентный цвет", "choice", list(ACCENTS)),
+              ("auto_theme", "Менять тему по времени суток", "bool"),
+              ("theme_day_start", "Светлая с часа", "int", 0, 23),
+              ("theme_night_start", "Тёмная с часа", "int", 0, 23)]),
     ("Управление", [
         ("tap_zones", "Тап-зоны", "bool"), ("wheel_pages", "Колесо листает страницы", "bool"),
         ("swipe_nav", "Горизонтальный свайп листает страницы", "bool"),
         ("autoscroll", "Скорость автопрокрутки", "int", 5, 200),
+        ("pomodoro_work", "Таймер чтения, мин", "int", 5, 90),
+        ("pomodoro_break", "Перерыв, мин", "int", 1, 30),
         ("tune_visible", "Панель настройки при открытии", "bool"),
     ]),
     ("Сервисы", [
@@ -1237,6 +1242,20 @@ class HomePage(QWidget):
         root.addWidget(self.stats)
         self._card_shadow(self.stats)
 
+        self.quote = QFrame(); self.quote.setObjectName("QuoteCard")
+        qh = QHBoxLayout(self.quote); qh.setContentsMargins(14, 12, 14, 12); qh.setSpacing(12)
+        self.quote_text = QLabel(); self.quote_text.setObjectName("ContinueLabel")
+        self.quote_text.setWordWrap(True)
+        self.quote_src = QLabel(); self.quote_src.setObjectName("HomeSubtle")
+        qcol = QVBoxLayout(); qcol.setSpacing(4)
+        qcol.addWidget(self.quote_text); qcol.addWidget(self.quote_src)
+        qh.addLayout(qcol, 1)
+        share = QPushButton("Поделиться"); share.setObjectName("HomeAction")
+        share.clicked.connect(self._share_quote)
+        qh.addWidget(share, 0, Qt.AlignVCenter)
+        self.quote.hide()
+        root.addWidget(self.quote)
+
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
         gl = QHBoxLayout(self.goal); gl.setContentsMargins(14, 12, 14, 12)
         self.goal_label = QLabel(); self.goal_label.setObjectName("HomeSubtle")
@@ -1262,6 +1281,12 @@ class HomePage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def _share_quote(self):
+        text = getattr(self, "_quote_text", "")
+        if text:
+            QGuiApplication.clipboard().setText(text)
+            self.win.notify("Цитата скопирована")
 
     def _card_shadow(self, widget, blur=14):
         effect = QGraphicsDropShadowEffect(widget)
@@ -1311,6 +1336,22 @@ class HomePage(QWidget):
         self.stat_values["streak"].setText(str(streak))
         self.stat_values["marks"].setText(str(lib.q("SELECT count(*) c FROM marks")[0]["c"]))
         self.stat_values["notes"].setText(str(lib.q("SELECT count(*) c FROM notes")[0]["c"]))
+
+        quotes = lib.q("SELECT n.note note, b.title title FROM notes n "
+                       "JOIN books b ON b.id=n.book WHERE n.note<>'' LIMIT 500")
+        if quotes:
+            seed = sum(ord(c) for c in date.today().isoformat())
+            q = quotes[seed % len(quotes)]
+            text = " ".join((q["note"] or "").split())[:300]
+            source = q["title"] or "Без названия"
+            self._quote_text = f"«{text}»\n— {source}"
+            self.quote_text.setText(self._quote_text)
+            self.quote_src.setText("Цитата дня · случайная из ваших заметок")
+            self.quote.show()
+        else:
+            self._quote_text = ""
+            self.quote.hide()
+
         rows = lib.q("SELECT id,title,author,progress FROM books "
                      "WHERE last_read>0 AND progress>0.001 AND progress<0.995 "
                      "ORDER BY last_read DESC LIMIT 1")
@@ -1669,6 +1710,10 @@ class Win(QMainWindow):
     def __init__(self):
         super().__init__()
         apply_theme(S["theme"], force=True)
+        self.apply_auto_theme()
+        self._theme_timer = QTimer(self)
+        self._theme_timer.timeout.connect(self.apply_auto_theme)
+        self._theme_timer.start(10 * 60 * 1000)
         self.lib = Library()
         if not self.lib.integrity_ok:
             msg = "База данных была повреждена и пересоздана"
@@ -2074,6 +2119,24 @@ class Win(QMainWindow):
         self.list.setUniformItemSizes(True)
         self.list.setWrapping(grid)
         S["view"] = mode; S.save()
+
+    def apply_auto_theme(self):
+        if not S.get("auto_theme"):
+            return
+        hour = datetime.now().hour
+        day, night = int(S.get("theme_day_start", 7)), int(S.get("theme_night_start", 20))
+        if day < night:
+            is_night = not (day <= hour < night)
+        else:
+            is_night = hour >= day or hour < night
+        desired = "Тёмная" if is_night else "Светлая"
+        if S.get("theme") == desired:
+            return
+        S["theme"] = desired
+        apply_theme(desired, force=True)
+        for reader in getattr(self, "readers", []):
+            reader.st["theme"] = desired
+            reader.apply({})
 
     def toggle_view(self):
         self.set_view("list" if self.deleg.grid else "grid")
@@ -2607,6 +2670,7 @@ class Win(QMainWindow):
 
         def accepted(dlg):
             S.update(dlg.s); S.save()
+            self.apply_auto_theme()
             apply_theme(S["theme"], force=True)
             self.set_view(S["view"]); self.reload()
 

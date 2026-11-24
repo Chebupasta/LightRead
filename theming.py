@@ -290,6 +290,10 @@ QFrame#StatsCard {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
   border-radius: %(radius.md)s;
 }
+QFrame#QuoteCard {
+  background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
+  border-left: 2px solid %(accent.default)s; border-radius: %(radius.md)s;
+}
 QLabel#StatValue {
   color: %(text.primary)s; font-size: %(font.xl)s;
   font-weight: %(font.weight.medium)s; background: transparent;

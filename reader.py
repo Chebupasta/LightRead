@@ -338,6 +338,10 @@ class Reader(QMainWindow):
         self._clock.timeout.connect(self.on_changed)
         self._clock.timeout.connect(self._tick_activity)
         self._clock.start()
+        self._pomodoro = QTimer(self); self._pomodoro.setInterval(1000)
+        self._pomodoro.timeout.connect(self._pomodoro_tick)
+        self._pomodoro_phase = "work"
+        self._pomodoro_left = 0
         self.view.restore(self.row["chapter"], self.row["pos"])
         self._progress0 = self.view.progress()
         self._last_page = self.view.page
@@ -469,6 +473,7 @@ class Reader(QMainWindow):
         QShortcut(QKeySequence("Ctrl+G"), self, lambda: self.pg.setFocus())
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.copy_selection)
         QShortcut(QKeySequence("F1"), self, self.show_help)
+        QShortcut(QKeySequence("Ctrl+Shift+P"), self, self.toggle_pomodoro)
         act("Параметры", self.settings, "F7")
 
         m = self.menuBar().addMenu("Книга")
@@ -482,6 +487,7 @@ class Reader(QMainWindow):
         for mins in (15, 30, 60):
             m.addAction(f"Таймер сна: {mins} мин", lambda mm=mins: self.sleep(mm))
         m.addAction("Таймер сна: выкл", lambda: self._sleep.stop())
+        m.addAction("Таймер чтения: старт/стоп", self.toggle_pomodoro, QKeySequence("Ctrl+Shift+P"))
         m.addSeparator()
         m.addAction("Информация о книге", self.info)
         m.addAction("Свойства файла…", self.file_properties, QKeySequence("Alt+Enter"))
@@ -809,6 +815,33 @@ class Reader(QMainWindow):
         if p:
             export_notes(rows, self.row, p)
             QMessageBox.information(self, "Экспорт", f"Сохранено: {p}")
+
+    def toggle_pomodoro(self):
+        if self._pomodoro.isActive():
+            self._pomodoro.stop()
+            self.statusBar().showMessage("Таймер чтения остановлен", 2000)
+            return
+        self._pomodoro_phase = "work"
+        self._pomodoro_left = max(1, int(S.get("pomodoro_work", 25))) * 60
+        self._pomodoro.start()
+        self.statusBar().showMessage("Таймер чтения запущен", 2000)
+
+    def _pomodoro_tick(self):
+        self._pomodoro_left -= 1
+        if self._pomodoro_left > 0:
+            mins, secs = divmod(self._pomodoro_left, 60)
+            word = "чтение" if self._pomodoro_phase == "work" else "перерыв"
+            self.statusBar().showMessage(f"⏱ {word}: {mins:02d}:{secs:02d}", 1100)
+            return
+        QApplication.beep()
+        if self._pomodoro_phase == "work":
+            self._pomodoro_phase = "break"
+            self._pomodoro_left = max(1, int(S.get("pomodoro_break", 5))) * 60
+            self.notify("Перерыв — отдохните")
+        else:
+            self._pomodoro_phase = "work"
+            self._pomodoro_left = max(1, int(S.get("pomodoro_work", 25))) * 60
+            self.notify("Пора читать")
 
     def _tick_activity(self):
         now = time.time()

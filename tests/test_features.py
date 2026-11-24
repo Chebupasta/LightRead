@@ -963,6 +963,25 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertTrue(self.win.toast.isVisible())
         self.assertEqual(self.win.toast.label.text(), "тест")
 
+    def test_auto_theme(self):
+        with settings(auto_theme=True, theme_day_start=0, theme_night_start=0):
+            self.win.apply_auto_theme()
+            self.assertEqual(common.S["theme"], "Тёмная")
+
+    def test_pomodoro_toggle(self):
+        self.win.open_book(self.bid)
+        r = self.win.reader
+        r.toggle_pomodoro()
+        self.assertTrue(r._pomodoro.isActive())
+        r.toggle_pomodoro()
+        self.assertFalse(r._pomodoro.isActive())
+        r.close()
+
+    def test_quote_of_day(self):
+        self.win.lib.note_add(self.bid, 0, 0, 1, "#ffc94a", "Цитата", "Запомнить эту мысль", anchor="")
+        self.win.home.refresh()
+        self.assertIn("Запомнить эту мысль", self.win.home._quote_text)
+
     def test_share_quote_and_random_book(self):
         from PySide6.QtWidgets import QApplication
         self.win.open_book(self.bid)
