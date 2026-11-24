@@ -462,7 +462,7 @@ class BookDelegate(QStyledItemDelegate):
             self._cover(p, cover, b, pm)
             if b["id"] == self.hover:
                 self._draw_actions(p, cover)
-            labels = {"reading": "ЧИТАЮ", "read": "ПРОЧИТАНО", "planned": "ПЛАН"}
+            labels = {"reading": ui_text("ЧИТАЮ"), "read": ui_text("ПРОЧИТАНО"), "planned": ui_text("ПЛАН")}
             label = labels.get(b["status"])
             if label:
                 self._dot(p, cover.x() + 10, cover.y() + 10, status)
@@ -483,7 +483,7 @@ class BookDelegate(QStyledItemDelegate):
             p.drawText(QRectF(r.x(), ty, r.width(), 17), Qt.AlignLeft | Qt.AlignVCenter, line)
             f.setPointSize(9); f.setWeight(QFont.Normal); p.setFont(f); p.setPen(dim)
             p.drawText(QRectF(r.x(), ty + 17, r.width(), 15), Qt.AlignLeft | Qt.AlignVCenter,
-                       fm.elidedText(b["author"] or "Автор не указан", Qt.ElideRight, int(r.width())))
+                       fm.elidedText(b["author"] or ui_text("Автор не указан"), Qt.ElideRight, int(r.width())))
             my = cover.bottom() + 48
             self._dot(p, r.x() + 1, my + 4, fmt_col, 5)
             p.setPen(faint); f.setPointSize(8); p.setFont(f)
@@ -510,7 +510,7 @@ class BookDelegate(QStyledItemDelegate):
             p.drawText(QRectF(title_x, r.y() + 1, tw, 20), Qt.AlignVCenter,
                        p.fontMetrics().elidedText(b["title"], Qt.ElideRight, int(tw)))
             f.setPointSize(9); f.setWeight(QFont.Normal); p.setFont(f); p.setPen(dim)
-            sub = (b["author"] or "Автор не указан") + (" · " + b["series"] if b["series"] else "")
+            sub = (b["author"] or ui_text("Автор не указан")) + (" · " + b["series"] if b["series"] else "")
             p.drawText(QRectF(title_x, r.y() + 22, tw, 16), Qt.AlignVCenter,
                        p.fontMetrics().elidedText(sub, Qt.ElideRight, int(tw)))
             rx = r.right() - 118
@@ -570,6 +570,7 @@ SCHEMA_UI = [
         ("pomodoro_work", "Таймер чтения, мин", "int", 5, 90),
         ("pomodoro_break", "Перерыв, мин", "int", 1, 30),
         ("tune_visible", "Панель настройки при открытии", "bool"),
+        ("lib_toolbar_in_reader", "Панель библиотеки при чтении", "bool"),
     ]),
     ("Сервисы", [
         ("tts_voice", "Голос TTS", "voice"), ("tts_rate", "Скорость", "float", -1.0, 1.0),
@@ -982,8 +983,9 @@ class StatsDialog(QDialog):
             streak += 1; d -= timedelta(days=1)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel("<h3>Статистика чтения</h3>"))
-        lay.addWidget(QLabel(f"Всего времени: <b>{hms(total)}</b> · Страниц: <b>{pages}</b> · "
-                             f"Серия дней: <b>{streak}</b>"))
+        lay.addWidget(QLabel(f"{ui_text('Всего времени: <b>')}{hms(total)}"
+                             f"{ui_text('</b> · Страниц: <b>')}{pages}"
+                             f"{ui_text('</b> · Серия дней: <b>')}{streak}</b>"))
         top = QHBoxLayout()
         top.addWidget(QLabel("Период:"))
         self.period = QComboBox()
@@ -1004,7 +1006,7 @@ class StatsDialog(QDialog):
         lay.addWidget(self.heat)
         if rows:
             best = max(rows, key=lambda r: r["s"] or 0)
-            lay.addWidget(QLabel(f"Самый продуктивный день: <b>{best['day']}</b> — {hms(best['s'])}"))
+            lay.addWidget(QLabel(f"{ui_text('Самый продуктивный день: <b>')}{best['day']}</b> — {hms(best['s'])}"))
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(self.reject); bb.accepted.connect(self.accept)
         lay.addWidget(bb)
@@ -1250,7 +1252,7 @@ class MiniBars(QWidget):
         col = chrome(theme(S["theme"]))
         if not self.values:
             p.setPen(QColor(col["text.tertiary"]))
-            p.drawText(self.rect(), Qt.AlignCenter, "Нет данных за период")
+            p.drawText(self.rect(), Qt.AlignCenter, ui_text("Нет данных за период"))
             return
         top = 6
         bottom = self.height() - 14
@@ -1528,7 +1530,7 @@ class HomePage(QWidget):
             seed = sum(ord(c) for c in date.today().isoformat())
             q = quotes[seed % len(quotes)]
             text = " ".join((q["note"] or "").split())[:300]
-            source = q["title"] or "Без названия"
+            source = q["title"] or ui_text("Без названия")
             self._quote_text = f"«{text}»\n— {source}"
             self.quote_text.setText(self._quote_text)
             self.quote_src.setText(ui_text("Цитата дня · случайная из ваших заметок"))
@@ -1546,7 +1548,7 @@ class HomePage(QWidget):
         else:
             r = rows[0]
             self.win._continue_id = r["id"]
-            name = r["title"] or "Без названия"
+            name = r["title"] or ui_text("Без названия")
             author = f" · {r['author']}" if r["author"] else ""
             self.cont_label.setText(f"{name}{author}")
             self.cont_meta.setText(f"{r['progress'] * 100:.0f}% {ui_text('прочитано')}")
@@ -1564,7 +1566,7 @@ class HomePage(QWidget):
             self.goal_label.setText(f"Цель на сегодня: {hms(int(secs))} / {hms(limit)}")
             self.goal.show()
         else:
-            self.goal_label.setText("Цель чтения не задана — F7 → Сервисы")
+            self.goal_label.setText(ui_text("Цель чтения не задана — F7 → Сервисы"))
             self.goal.hide()
 
 
@@ -2217,7 +2219,7 @@ class Win(QMainWindow):
         for r in rows:
             it = QStandardItem(); it.setData(dict(r), ROLE); it.setEditable(False)
             self.model.appendRow(it)
-        self.statusBar().showMessage(f"Книг: {len(rows)}")
+        self.say(f"{ui_text('Книг: ')}{len(rows)}")
         self.update_continue()
         if not rows:
             query = self.q.text().strip()
@@ -2371,7 +2373,7 @@ class Win(QMainWindow):
         S["folders"] = [p]
         S.save()
         self.update_watcher()
-        self.statusBar().showMessage(f"Папка библиотеки: {p}", 4000)
+        self.say(f"{ui_text('Папка библиотеки: ')}{p}", 4000)
         self.scan()
 
     def add_folder(self):
@@ -2384,7 +2386,7 @@ class Win(QMainWindow):
             self.update_watcher()
             self.scan()
         else:
-            self.statusBar().showMessage("Эта папка уже есть в библиотеке", 3000)
+            self.say("Эта папка уже есть в библиотеке", 3000)
 
     def scan(self):
         if self.scanner and self.scanner.isRunning():
@@ -2397,7 +2399,7 @@ class Win(QMainWindow):
         self.scanner = Scanner(S["folders"], self.lib.known(), self.lib.hashes())
         self.scanner.found.connect(self.on_found)
         self.scanner.progress.connect(lambda n, i, t: (self.pb.setMaximum(t), self.pb.setValue(i),
-                                                       self.statusBar().showMessage("Скан: " + n[:70])))
+                                                       self.say(ui_text("Скан: ") + n[:70])))
         self.scanner.done.connect(self.scan_done)
         self.scanner.start()
 
@@ -2409,7 +2411,7 @@ class Win(QMainWindow):
 
     def scan_done(self, n):
         self.pb.hide()
-        self.statusBar().showMessage(f"Сканирование завершено: +{n}", 5000)
+        self.say(f"{ui_text('Сканирование завершено: +')}{n}", 5000)
         self.notify(f"Сканирование завершено: +{n}")
         self.reload()
         self.fetch_covers()
@@ -2421,11 +2423,11 @@ class Win(QMainWindow):
                 if not (COVERS / f"{r['id']}.png").exists() and Path(r["path"]).is_file()]
         if not jobs:
             return
-        self.statusBar().showMessage(f"Обложки: {len(jobs)}…")
+        self.say(f"{ui_text('Обложки: ')}{len(jobs)}…")
         self.covers = CoverWorker(jobs)
         self.covers.got.connect(lambda bid: (self.deleg.bust(bid), self.list.viewport().update()))
         self.covers.finishedAll.connect(lambda: (
-            self.statusBar().showMessage("Обложки готовы", 3000), self.notify("Обложки готовы")))
+            self.say("Обложки готовы", 3000), self.notify("Обложки готовы")))
         self.covers.start()
 
     def open_file(self):
@@ -2474,7 +2476,7 @@ class Win(QMainWindow):
         if not row:
             return
         if not Path(row["path"]).is_file():
-            QMessageBox.warning(self, "Нет файла", "Файл недоступен: " + row["path"]); return
+            QMessageBox.warning(self, ui_text("Нет файла"), ui_text("Файл недоступен: ") + row["path"]); return
         # Если книга уже открыта — просто активируем её окно.
         for r in self.readers:
             if getattr(r, "bid", None) == bid:
@@ -2495,7 +2497,7 @@ class Win(QMainWindow):
             r.destroyed.connect(lambda _=None, rr=r: self.reader_closed(rr))
             self.readers.append(r)
             self.reader = r
-            title = (row["title"] or "Без названия")[:40]
+            title = (row["title"] or ui_text("Без названия"))[:40]
             self.book_tabs.addTab(r, title)
             idx = self.book_tabs.count() - 1
             self.book_tabs.tabBar().setTabButton(
@@ -2567,7 +2569,7 @@ class Win(QMainWindow):
         def show(items):
             results.clear()
             for bid, ch, title, snippet in items:
-                it = QListWidgetItem(f"{title} · гл. {ch + 1}\n{snippet}")
+                it = QListWidgetItem(f"{title} {ui_text('· гл.')} {ch + 1}\n{snippet}")
                 it.setData(Qt.UserRole, (bid, ch, edit.text().strip()))
                 results.addItem(it)
             status.setText(f"Найдено: {len(items)}" if edit.text().strip() else "Введите минимум 2 символа")
@@ -2581,7 +2583,7 @@ class Win(QMainWindow):
             if worker is not None and worker.isRunning():
                 status.setText("Ищу по всем книгам…")
                 return
-            rows = [(r["id"], r["path"], r["title"] or "Без названия")
+            rows = [(r["id"], r["path"], r["title"] or ui_text("Без названия"))
                     for r in self.lib.q("SELECT id,path,title FROM books")]
             status.setText("Ищу по всем книгам…")
             worker = _GlobalSearchWorker(query, rows, self)
@@ -2633,7 +2635,7 @@ class Win(QMainWindow):
             ):
                 d.add(label, fn)
         for r in w.lib.q("SELECT id,title,author FROM books ORDER BY last_read DESC LIMIT 200"):
-            title = r["title"] or "Без названия"
+            title = r["title"] or ui_text("Без названия")
             label = f"📖 {title}" + (f" — {r['author']}" if r["author"] else "")
             d.add(label, lambda bid=r["id"]: w.open_book(bid))
         d.fill("")
@@ -2649,14 +2651,17 @@ class Win(QMainWindow):
         if self.lib.book(bid):
             self.open_dialog_tab(FilePropertiesDialog(self.lib, bid, self), "Свойства файла")
 
+    def say(self, text, ms=2000):
+        self.statusBar().showMessage(ui_text(text), ms)
+
     def notify(self, text):
         if not hasattr(self, "toast"):
             self.toast = Toast(self)
-        self.toast.notify(text)
+        self.toast.notify(ui_text(text))
 
     def on_tab_changed(self, i):
         if hasattr(self, "tb_lib"):
-            self.tb_lib.setVisible(i <= LIB_TAB)
+            self.tb_lib.setVisible(i <= LIB_TAB or bool(S.get("lib_toolbar_in_reader", True)))
         if self._history_lock:
             return
         if not self._tab_history or self._tab_history[self._history_pos] != i:
@@ -2767,7 +2772,8 @@ class Win(QMainWindow):
         m.exec(self.list.viewport().mapToGlobal(pos))
 
     def delete_many(self, ids):
-        if QMessageBox.question(self, "Удалить", f"Удалить {len(ids)} файлов с диска?") != QMessageBox.Yes:
+        if QMessageBox.question(self, ui_text("Удалить"),
+                                f"{ui_text('Удалить ')}{len(ids)}{ui_text(' файлов с диска?')}") != QMessageBox.Yes:
             return
         for bid in ids:
             self.lib.remove(bid, delete_file=True)
@@ -2832,10 +2838,11 @@ class Win(QMainWindow):
                 self.book_tabs.setCurrentIndex(i)
                 return existing
         dlg.setProperty("panel_key", key)
+        dlg.setProperty("_lr_tab_title", title)
         prev = self.book_tabs.currentIndex()
         dlg.setWindowFlags(Qt.Widget)
         dlg.setAttribute(Qt.WA_DeleteOnClose, False)
-        idx = self.book_tabs.addTab(dlg, title)
+        idx = self.book_tabs.addTab(dlg, ui_text(title))
         self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide,
                                              self._tab_close_button(dlg, self.close_dialog_tab))
         self.book_tabs.setCurrentIndex(idx)
@@ -2862,9 +2869,8 @@ class Win(QMainWindow):
             S.update(dlg.s); S.save()
             self.apply_auto_theme()
             apply_theme(S["theme"], force=True)
-            apply_language(self)
-            for reader in self.readers:
-                apply_language(reader)
+            for top in QApplication.topLevelWidgets():
+                apply_language(top)
             self.set_view(S["view"]); self.reload()
 
         self.open_dialog_tab(d, "Настройки", accepted)
@@ -2887,7 +2893,7 @@ class Win(QMainWindow):
     def _git_update_done(self, status, message, quiet=False):
         if status == "updated":
             answer = QMessageBox.question(
-                self, "Обновление", f"{message}\n\nПерезапустить приложение?",
+                self, ui_text("Обновление"), f"{message}\n\n{ui_text('Перезапустить приложение?')}",
                 QMessageBox.Yes | QMessageBox.No)
             if answer == QMessageBox.Yes:
                 from PySide6.QtCore import QProcess
@@ -2895,12 +2901,12 @@ class Win(QMainWindow):
                 QTimer.singleShot(200, lambda: (
                     QProcess.startDetached(sys.executable, [script]), QApplication.quit()))
         elif not quiet:
-            self.statusBar().showMessage(message, 5000)
+            self.say(message, 5000)
 
     def check_updates(self, quiet=False):
         if not S.get("update_url"):
             if not quiet:
-                self.statusBar().showMessage("Укажи URL релизов в настройках", 4000)
+                self.say("Укажи URL релизов в настройках", 4000)
             return
         worker = getattr(self, "_update_worker", None)
         if worker is not None and worker.isRunning():
@@ -2917,7 +2923,7 @@ class Win(QMainWindow):
         ver = info.get("version", "")
         if quiet:
             if ver:
-                self.statusBar().showMessage(f"Доступна версия {ver}", 5000)
+                self.say(f"{ui_text('Доступна версия ')}{ver}", 5000)
             return
         text = f"Доступна версия: {ver}"
         if info.get("url"):
@@ -2928,7 +2934,7 @@ class Win(QMainWindow):
 
     def _update_failed(self, error, quiet=False):
         if not quiet:
-            QMessageBox.information(self, "Обновления", f"Не удалось проверить: {error}")
+            QMessageBox.information(self, ui_text("Обновления"), f"{ui_text('Не удалось проверить: ')}{error}")
 
     def _sync_client(self):
         from services import WebDav
@@ -2941,31 +2947,31 @@ class Win(QMainWindow):
         client = self._sync_client()
         if not client:
             if not quiet:
-                self.statusBar().showMessage("Укажи WebDAV URL в настройках", 4000)
+                self.say("Укажи WebDAV URL в настройках", 4000)
             return
         try:
             client.ensure()
             client.put(Sync.NAME, json.dumps(Sync.export(self.lib), ensure_ascii=False).encode("utf-8"))
             if not quiet:
-                self.statusBar().showMessage("Синхронизация: данные отправлены", 4000)
+                self.say("Синхронизация: данные отправлены", 4000)
                 self.notify("Синхронизация: данные отправлены")
         except Exception as e:
-            self.statusBar().showMessage(f"Ошибка синхронизации: {type(e).__name__}", 5000)
+            self.say(f"{ui_text('Ошибка синхронизации: ')}{type(e).__name__}", 5000)
 
     def sync_download(self):
         from services import Sync
         client = self._sync_client()
         if not client:
-            self.statusBar().showMessage("Укажи WebDAV URL в настройках", 4000)
+            self.say("Укажи WebDAV URL в настройках", 4000)
             return
         try:
             data = json.loads(client.get(Sync.NAME).decode("utf-8"))
             Sync.apply(self.lib, data)
             self.reload()
-            self.statusBar().showMessage("Синхронизация: данные получены", 4000)
+            self.say("Синхронизация: данные получены", 4000)
             self.notify("Синхронизация: данные получены")
         except Exception as e:
-            self.statusBar().showMessage(f"Ошибка синхронизации: {type(e).__name__}", 5000)
+            self.say(f"{ui_text('Ошибка синхронизации: ')}{type(e).__name__}", 5000)
 
     def backup(self):
         p, _ = QFileDialog.getSaveFileName(self, "Резервная копия", "lightread-backup.zip", "ZIP (*.zip)")

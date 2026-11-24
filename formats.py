@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from common import CACHE, S
+from i18n import ui_text
 
 _meta_state = threading.local()
 _ZIP_REGISTRY = weakref.WeakSet()
@@ -329,7 +330,7 @@ def split_html(h, anchors, headings, limit=180000):
     for k in range(len(cuts) - 1):
         a, b = cuts[k], cuts[k + 1]
         seg = h[a:b]
-        title = next((t for l, pos, t in headings if a <= pos < b and t), f"Часть {k + 1}")
+        title = next((t for l, pos, t in headings if a <= pos < b and t), f"{ui_text('Часть ')}{k + 1}")
         parts.append((title, seg, {n: v - a for n, v in anchors.items() if a <= v < b}))
         heads += [(l, pos - a, t) for l, pos, t in headings if a <= pos < b]
     return parts, heads
@@ -458,10 +459,10 @@ class Txt(Parts):
             while p < len(txt):
                 e = txt.find("\n\n", p + 18000)
                 e = len(txt) if e < 0 else e
-                chunks.append((p, f"Часть {n}")); p = e; n += 1
+                chunks.append((p, f"{ui_text('Часть ')}{n}")); p = e; n += 1
         for idx, (s, title) in enumerate(chunks):
             e = chunks[idx + 1][0] if idx + 1 < len(chunks) else len(txt)
-            self.parts.append((title[:90] or f"Часть {idx + 1}", text_to_html(txt[s:e]), {}))
+            self.parts.append((title[:90] or f"{ui_text('Часть ')}{idx + 1}", text_to_html(txt[s:e]), {}))
         self.finalize()
 
 

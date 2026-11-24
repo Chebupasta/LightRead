@@ -199,7 +199,7 @@ DEFAULTS = dict(
     office_pdf=True, office_cache_days=30, office_cache_mb=512, swipe_nav=True,
     auto_theme=False, theme_day_start=7, theme_night_start=20,
     pomodoro_work=25, pomodoro_break=5,
-    auto_git_update=False, update_repo="", language="ru",
+    auto_git_update=False, update_repo="", language="ru", lib_toolbar_in_reader=True,
 )
 
 ACCENTS = {
@@ -257,7 +257,8 @@ def human(n):
 
 def hms(sec):
     sec = int(sec or 0); h, m = sec // 3600, (sec % 3600) // 60
-    return (f"{h} ч " if h else "") + f"{m} мин"
+    en = S.get("language", "ru") == "en"
+    return (f"{h} {'h' if en else 'ч'} " if h else "") + f"{m} {'min' if en else 'мин'}"
 
 
 def norm(p):

@@ -993,15 +993,19 @@ class TestHomeAndTabs(unittest.TestCase):
         self.assertEqual(self.win.toast.label.text(), "тест")
 
     def test_language_switch(self):
+        menu_titles = lambda: [a.menu().title() for a in self.win.menuBar().actions() if a.menu()]
+        self.assertIn("Файл", menu_titles())
         common.S["language"] = "en"
         try:
             i18n.apply_language(self.win)
             texts = [self.win.book_tabs.tabText(i) for i in range(self.win.book_tabs.count())]
             self.assertIn("Home", texts)
             self.assertIn("Library", texts)
+            self.assertIn("File", menu_titles())
         finally:
             common.S["language"] = "ru"
             i18n.apply_language(self.win)
+        self.assertIn("Файл", menu_titles())
 
     def test_auto_theme(self):
         with settings(auto_theme=True, theme_day_start=0, theme_night_start=0):

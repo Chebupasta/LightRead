@@ -16,7 +16,7 @@ from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK, OFFI
 from formats import open_source, open_source_no_cover, open_exact_source, FormatError, plain
 from views import ReflowView, FixedView, pick_font, chapter_text
 from services import Tts, StarDict
-from i18n import apply_language
+from i18n import apply_language, ui_text
 from theming import apply_theme, chrome
 
 
@@ -30,7 +30,7 @@ def export_notes(rows, book, path):
     for r in rows:
         if ext == "md":
             out.append(f"> {r['text']}\n\n" + (f"*{r['note']}*\n\n" if r["note"] else "") +
-                       f"— {book['title']}, гл. {r['chapter'] + 1}\n")
+                       f"— {book['title']}{ui_text(', гл. ')}{r['chapter'] + 1}\n")
         elif ext == "html":
             out.append(f"<blockquote style='border-left:4px solid {r['color']};padding-left:10px'>"
                        f"{r['text']}</blockquote>" + (f"<p><i>{r['note']}</i></p>" if r["note"] else ""))
@@ -391,9 +391,12 @@ class Reader(QMainWindow):
         if text:
             QGuiApplication.clipboard().setText(text)
 
+    def say(self, text, ms=2000):
+        self.statusBar().showMessage(ui_text(text), ms)
+
     def share_link(self):
         QGuiApplication.clipboard().setText(Path(self.row["path"]).resolve().as_uri())
-        self.statusBar().showMessage("Ссылка на книгу скопирована", 2500)
+        self.say("Ссылка на книгу скопирована", 2500)
         self.notify("Ссылка скопирована")
 
     def share_page(self):
@@ -403,7 +406,7 @@ class Reader(QMainWindow):
         text = (f"{uri}#chapter={ch + 1}&pos={pos}&page={self.view.page + 1}&"
                 f"title={url_quote(self.row['title'] or '')}")
         QGuiApplication.clipboard().setText(text)
-        self.statusBar().showMessage("Ссылка на страницу скопирована", 2500)
+        self.say("Ссылка на страницу скопирована", 2500)
         self.notify("Ссылка на страницу скопирована")
 
     def share_screenshot(self):
@@ -411,7 +414,7 @@ class Reader(QMainWindow):
         if image.isNull():
             return
         QGuiApplication.clipboard().setImage(image)
-        self.statusBar().showMessage("Снимок страницы в буфере", 2500)
+        self.say("Снимок страницы в буфере", 2500)
         self.notify("Снимок страницы скопирован")
 
     def print_book(self, whole=True):
@@ -441,7 +444,7 @@ class Reader(QMainWindow):
                 document.print_(printer)
             else:
                 self.view.doc.print_(printer)
-        self.statusBar().showMessage("Отправлено на печать", 2500)
+        self.say("Отправлено на печать", 2500)
 
     def show_help(self):
         win = QApplication.instance().property("main_window")
@@ -505,7 +508,8 @@ class Reader(QMainWindow):
         printing.addAction("Текущую страницу/главу…", lambda: self.print_book(False))
         m.addSeparator()
         for mins in (15, 30, 60):
-            m.addAction(f"Таймер сна: {mins} мин", lambda mm=mins: self.sleep(mm))
+            m.addAction(f"{ui_text('Таймер сна: ')}{mins}{ui_text(' мин')}",
+                        lambda mm=mins: self.sleep(mm))
         m.addAction("Таймер сна: выкл", lambda: self._sleep.stop())
         m.addAction("Таймер чтения: старт/стоп", self.toggle_pomodoro, QKeySequence("Ctrl+Shift+P"))
         m.addSeparator()
@@ -741,7 +745,7 @@ class Reader(QMainWindow):
     def quick_note(self):
         self.open_panel(2)
         self.note_edit.setFocus()
-        self.statusBar().showMessage("Введите заметку и нажми «Сохранить»", 3000)
+        self.say("Введите заметку и нажми «Сохранить»", 3000)
 
     def new_note_text(self):
         self._edit_note_id = None
@@ -768,7 +772,7 @@ class Reader(QMainWindow):
     def save_note_text(self):
         text = self.note_edit.toPlainText().strip()
         if not text:
-            self.statusBar().showMessage("Введите текст заметки", 2000)
+            self.say("Введите текст заметки", 2000)
             return
         if self._edit_note_id:
             self.lib.note_upd(self._edit_note_id, note=text)
@@ -787,7 +791,7 @@ class Reader(QMainWindow):
         S["note_drafts"] = drafts
         S.save()
         self.refresh_notes()
-        self.statusBar().showMessage("Заметка сохранена", 2000)
+        self.say("Заметка сохранена", 2000)
         self.notify("Заметка сохранена")
 
     def edit_note(self, r):
@@ -834,24 +838,24 @@ class Reader(QMainWindow):
                                            "Markdown (*.md);;Текст (*.txt);;HTML (*.html);;JSON (*.json)")
         if p:
             export_notes(rows, self.row, p)
-            QMessageBox.information(self, "Экспорт", f"Сохранено: {p}")
+            QMessageBox.information(self, ui_text("Экспорт"), f"{ui_text('Сохранено: ')}{p}")
 
     def toggle_pomodoro(self):
         if self._pomodoro.isActive():
             self._pomodoro.stop()
-            self.statusBar().showMessage("Таймер чтения остановлен", 2000)
+            self.say("Таймер чтения остановлен", 2000)
             return
         self._pomodoro_phase = "work"
         self._pomodoro_left = max(1, int(S.get("pomodoro_work", 25))) * 60
         self._pomodoro.start()
-        self.statusBar().showMessage("Таймер чтения запущен", 2000)
+        self.say("Таймер чтения запущен", 2000)
 
     def _pomodoro_tick(self):
         self._pomodoro_left -= 1
         if self._pomodoro_left > 0:
             mins, secs = divmod(self._pomodoro_left, 60)
-            word = "чтение" if self._pomodoro_phase == "work" else "перерыв"
-            self.statusBar().showMessage(f"⏱ {word}: {mins:02d}:{secs:02d}", 1100)
+            word = ui_text("чтение") if self._pomodoro_phase == "work" else ui_text("перерыв")
+            self.say(f"⏱ {word}: {mins:02d}:{secs:02d}", 1100)
             return
         QApplication.beep()
         if self._pomodoro_phase == "work":
@@ -883,7 +887,7 @@ class Reader(QMainWindow):
         self.pg.setRange(1, max(1, self.view.pages))
         self.pg.setValue(self.view.page + 1 if self.fixed else self.view.page + 1)
         self.pg.blockSignals(False)
-        self.l_total.setText(f"/ {self.view.pages}" + ("" if self.fixed else f"  гл.{ch + 1}/{self.src.count}"))
+        self.l_total.setText(f"/ {self.view.pages}" + ("" if self.fixed else f"{ui_text('  гл.')}{ch + 1}/{self.src.count}"))
         self.l_pc.setText(f"{prog * 100:.1f}%")
         self.l_tm.setText(hms(time.time() - self.t0))
         self.slider.blockSignals(True); self.slider.setValue(int(prog * 1000)); self.slider.blockSignals(False)
@@ -963,10 +967,10 @@ class Reader(QMainWindow):
 
     def add_mark(self):
         ch, pos = self.view.position()
-        title = self.view.chap.title if getattr(self.view, "chap", None) else f"Стр. {pos + 1}"
+        title = self.view.chap.title if getattr(self.view, "chap", None) else f"{ui_text('Стр. ')}{pos + 1}"
         self.lib.mark_add(self.bid, ch, pos, title, self.view.page_text()[:160].replace("\n", " "))
         self.fill_marks()
-        self.statusBar().showMessage("Закладка добавлена", 2000)
+        self.say("Закладка добавлена", 2000)
         self.notify("Закладка добавлена")
 
     def context_menu(self, gpos):
@@ -1049,7 +1053,7 @@ class Reader(QMainWindow):
                 k = t.lower().find(ql, start)
                 if k < 0:
                     break
-                label = f"стр. {i + 1}" if self.fixed else f"гл. {i + 1}"
+                label = f"{ui_text('стр. ')}{i + 1}" if self.fixed else f"{ui_text('гл. ')}{i + 1}"
                 it = QListWidgetItem(f"{label}: …{t[max(0, k - 40):k + 70].strip()}…")
                 it.setData(Qt.UserRole, (0 if self.fixed else i, i if self.fixed else k))
                 self.sres.addItem(it)
@@ -1064,12 +1068,12 @@ class Reader(QMainWindow):
                     hits += 1
         self._hit_q = q
         self._hit_i = -1
-        self.scount.setText(f"{hits} совп.")
+        self.scount.setText(f"{hits}{ui_text(' совп.')}")
         if self.fixed and not hits:
-            self.statusBar().showMessage(
+            self.say(
                 "Совпадений нет: у скана может отсутствовать текстовый слой", 6000)
         else:
-            self.statusBar().showMessage(f"Найдено: {hits}  (F3 / Shift+F3)", 4000)
+            self.say(f"{ui_text('Найдено: ')}{hits}  (F3 / Shift+F3)", 4000)
 
     def search_step(self, d):
         """Переход к следующему/предыдущему совпадению (как в ReadEra)."""
@@ -1239,7 +1243,7 @@ class Reader(QMainWindow):
 
     def sleep(self, mins):
         self._sleep.start(mins * 60000)
-        self.statusBar().showMessage(f"Таймер сна: {mins} мин", 4000)
+        self.say(f"{ui_text('Таймер сна: ')}{mins}{ui_text(' мин')}", 4000)
 
     def sleep_done(self):
         self.tts.stop(); self._auto.stop(); self.save_pos(); self.close()
@@ -1249,7 +1253,7 @@ class Reader(QMainWindow):
             self.view.zoom_step(d); return
         self.st["font_size"] = max(8, min(40, int(self.st["font_size"]) + d))
         self.apply({})
-        self.statusBar().showMessage(f"Кегль: {self.st['font_size']} pt", 1500)
+        self.say(f"{ui_text('Кегль: ')}{self.st['font_size']} pt", 1500)
 
     def cycle_theme(self):
         names = list(THEMES)
@@ -1263,8 +1267,9 @@ class Reader(QMainWindow):
         S.save()
         apply_theme(self.st["theme"], force=True)
         self.apply({})
-        self.statusBar().showMessage("Тема: " + self.st["theme"], 1500)
-        self.notify("Тема: " + self.st["theme"])
+        theme_text = ui_text("Тема: ") + ui_text(self.st["theme"])
+        self.say(theme_text, 1500)
+        self.notify(theme_text)
 
     def tune_changed(self, key, value):
         if key == "__reset__":
@@ -1330,7 +1335,7 @@ class Reader(QMainWindow):
                 self.save_per_book()
 
         if win is not None and hasattr(win, "open_dialog_tab"):
-            win.open_dialog_tab(dlg, f"Настройки: {(self.row['title'] or 'Книга')[:18]}", accepted)
+            win.open_dialog_tab(dlg, f"{ui_text('Настройки: ')}{(self.row['title'] or ui_text('Книга'))[:18]}", accepted)
             return
         if dlg.exec():
             accepted(dlg)
@@ -1340,7 +1345,7 @@ class Reader(QMainWindow):
                 "margin", "gap", "columns", "mode", "theme", "brightness", "pdf_invert",
                 "pdf_fit", "pdf_zoom", "pdf_crop", "pdf_gap", "render_scale")
         self.lib.set_field(self.bid, rsettings=json.dumps({k: self.st[k] for k in keys}, ensure_ascii=False))
-        self.statusBar().showMessage("Настройки сохранены для этой книги", 2500)
+        self.say("Настройки сохранены для этой книги", 2500)
 
     def clear_per_book(self):
         self.lib.set_field(self.bid, rsettings="")
@@ -1367,7 +1372,7 @@ class Reader(QMainWindow):
     def notify(self, text):
         win = self.window()
         if win is not self and hasattr(win, "notify"):
-            win.notify(text)
+            win.notify(ui_text(text))
 
     def escape_full(self):
         main = self.window()
@@ -1378,18 +1383,18 @@ class Reader(QMainWindow):
         r = self.lib.book(self.bid)
         win = QApplication.instance().property("main_window")
         if win is None or not hasattr(win, "open_dialog_tab"):
-            QMessageBox.information(self, "О книге", r["title"] or "")
+            QMessageBox.information(self, ui_text("О книге"), r["title"] or "")
             return
         d = QDialog(win)
-        d.setWindowTitle("О книге")
+        d.setWindowTitle(ui_text("О книге"))
         box = QVBoxLayout(d)
         label = QLabel(f"<h3>{html.escape(r['title'] or '')}</h3>"
-                       f"<p>Автор: {html.escape(r['author'] or '—')}<br>"
-                       f"Серия: {html.escape(r['series'] or '—')}<br>"
-                       f"Формат: {r['fmt'].upper()}<br>"
-                       f"Прогресс: {r['progress'] * 100:.1f}%<br>"
-                       f"Время чтения: {hms(r['seconds'])}<br>"
-                       f"Файл: {html.escape(r['path'] or '')}</p>"
+                       f"<p>{ui_text('Автор: ')}{html.escape(r['author'] or '—')}<br>"
+                       f"{ui_text('Серия: ')}{html.escape(r['series'] or '—')}<br>"
+                       f"{ui_text('Формат: ')}{r['fmt'].upper()}<br>"
+                       f"{ui_text('Прогресс: ')}{r['progress'] * 100:.1f}%<br>"
+                       f"{ui_text('Время чтения: ')}{hms(r['seconds'])}<br>"
+                       f"{ui_text('Файл: ')}{html.escape(r['path'] or '')}</p>"
                        f"<p>{html.escape((r['annotation'] or '')[:900])}</p>")
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignTop)

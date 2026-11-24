@@ -2,6 +2,8 @@
 from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QToolButton, QCheckBox,
                                QComboBox, QTabWidget, QMenu, QToolBar, QGroupBox, QLineEdit, QTabBar)
 from PySide6.QtGui import QAction
+from PySide6.QtCore import QObject, QEvent
+from PySide6.QtWidgets import QApplication, QDialog, QMenuBar
 
 from common import S
 
@@ -104,6 +106,134 @@ T = {
     "Перерыв — отдохните": "Break — take a rest", "Пора читать": "Time to read",
     "Отправлено на печать": "Sent to printer", "Приложение обновлено": "Application updated",
     "Обновлений нет": "No updates", "Перезапустить приложение?": "Restart the application?",
+    # --- настройки и диалоги ---
+    "Настройки приложения": "Application settings", "Свойства файла": "File properties",
+    "Формат": "Format", "Путь": "Path", "Папка": "Folder", "Имя файла": "File name",
+    "Размер в библиотеке": "Size in library", "Добавлен в библиотеку": "Added to library",
+    "Статус": "Status", "Прогресс": "Progress", "Общие": "General", "Метаданные": "Metadata",
+    "Открыть папку": "Open folder", "Копировать путь": "Copy path", "Закрыть": "Close",
+    "О книге": "About book", "Сведения о книге": "Book details", "Аннотация": "Annotation",
+    "Аннотация:": "Annotation:", "Новая метка…": "New tag…",
+    "Загрузить свою обложку…": "Upload custom cover…", "Сохранить": "Save",
+    "Метка": "Tag", "Название метки:": "Tag name:", "Обложка книги": "Book cover",
+    "Изображения (*.png *.jpg *.jpeg *.webp)": "Images (*.png *.jpg *.jpeg *.webp)",
+    "Статистика чтения": "Reading statistics", "Нажми на день, чтобы увидеть детали": "Click a day for details",
+    "OPDS-каталоги": "OPDS catalogs", "Каталоги OPDS": "OPDS catalogs",
+    "Добавить каталог…": "Add catalog…", "Выбери каталог": "Choose a catalog",
+    "Скачать в библиотеку": "Download to library", "Название каталога:": "Catalog name:",
+    "URL фида (Atom):": "Feed URL (Atom):",
+    "Поиск по заметкам, цитатам и книгам…": "Search notes, quotes and books…",
+    "Главный экран": "Home screen", "Ваши книги и прогресс чтения": "Your books and reading progress",
+    "Уведомление": "Notification", "Умная коллекция": "Smart collection",
+    "Правило умной коллекции": "Smart collection rule", "Любой": "Any", "Любая": "Any",
+    "Только избранное": "Favorites only", " дней": " days", "Команды": "Commands",
+    "Палитра команд": "Command palette", "Книга или команда…": "Book or command…",
+    "База данных была повреждена и пересоздана": "Database was corrupted and recreated",
+    "Поиск по библиотеке": "Library search", "Навигация по библиотеке": "Library navigation",
+    "Книги библиотеки": "Library books", "Вкладки книг": "Book tabs",
+    "Новая коллекция…": "New collection…", "Новая умная коллекция…": "New smart collection…",
+    "Коллекция": "Collection", "Название коллекции": "Collection name",
+    "Папка с книгами (сканировать со вложенными)": "Books folder (scan subfolders)",
+    "Добавить папку с книгами": "Add books folder", "Открыть книги": "Open books",
+    "Глобальный поиск по книгам": "Global book search", "Фраза во всех книгах…": "Phrase in all books…",
+    "Поисковая фраза": "Search phrase", "Результаты поиска": "Search results",
+    "Введите минимум 2 символа": "Enter at least 2 characters", "Поиск по всем книгам": "Search all books",
+    "Закрыть вкладку": "Close tab", "В коллекцию": "Add to collection", "Новая…": "New…",
+    "Сбросить прогресс": "Reset progress", "Убрать из библиотеки": "Remove from library",
+    "Удалить файлы…": "Delete files…", "Доступна версия: ": "Version available: ",
+    "Резервная копия": "Backup", "Готово": "Done", "Копия сохранена.": "Backup saved.",
+    "Восстановить": "Restore", "Восстановлено. Перезапустите LightRead.": "Restored. Restart LightRead.",
+    "ЧИТАЮ": "READING", "ПРОЧИТАНО": "FINISHED", "ПЛАН": "PLANNED",
+    "Зазор колонок": "Column gap", "Масштаб, %": "Zoom, %", "Обрезать поля скана": "Crop scan margins",
+    "Инверсия в тёмной теме": "Invert in dark theme", "Зазор между страницами": "Page gap",
+    "Тень страницы": "Page shadow", "Резкость рендера": "Render sharpness",
+    "Менять тему по времени суток": "Auto theme by time of day", "Светлая с часа": "Light from hour",
+    "Тёмная с часа": "Dark from hour", "Таймер чтения, мин": "Reading timer, min",
+    "Перерыв, мин": "Break, min", "Панель библиотеки при чтении": "Library toolbar while reading",
+    "Файл на диске": "File on disk", "Недоступен": "Unavailable", "Размер на диске": "Size on disk",
+    "Создан": "Created", "Изменён": "Modified", "Последний доступ": "Last accessed",
+    "Заголовок": "Title", "Номер в серии": "Series number", "Не удалось прочитать": "Failed to read",
+    "<b>Формат:</b> ": "<b>Format:</b> ", "<br><b>Прогресс:</b> ": "<br><b>Progress:</b> ",
+    "%<br><b>Чтение:</b> ": "%<br><b>Reading:</b> ", "<br><b>Путь:</b> ": "<br><b>Path:</b> ",
+    "Статус:": "Status:", "Коллекции:": "Collections:", "Метки:": "Tags:",
+    "<h3>Статистика чтения</h3>": "<h3>Reading statistics</h3>", "Период:": "Period:",
+    "7 дней": "7 days", "30 дней": "30 days", "90 дней": "90 days",
+    "Цель, мин/день:": "Goal, min/day:", "Каталоги:": "Catalogs:",
+    "У книги нет ссылки на скачивание": "Book has no download link", "Без названия": "Untitled",
+    "Не начата": "Not started", " — библиотека": " — library", "Недавно читал": "Recently read",
+    "Размер": "Size", "OPDS-каталоги…": "OPDS catalogs…",
+    "Синхронизация: отправить": "Sync: upload", "Синхронизация: получить": "Sync: download",
+    "Проверить обновления…": "Check for updates…", "Все книги (": "All books (",
+    "Презентации (": "Presentations (", "Изменить правило…": "Edit rule…",
+    "Удалить правило": "Delete rule", "Удалить коллекцию": "Delete collection",
+    "Удалить метку": "Delete tag", "Книг: ": "Books: ", "Добро пожаловать": "Welcome",
+    "Библиотека пуста. Выбрать папку с книгами?": "Library is empty. Choose a books folder?",
+    "Папка библиотеки: ": "Library folder: ",
+    "Эта папка уже есть в библиотеке": "This folder is already in the library",
+    "Сканирование завершено: +": "Scan complete: +", "Обложки: ": "Covers: ",
+    "Книги (": "Books (", ");;Все файлы (*)": ");;All files (*)",
+    "Ищу по всем книгам…": "Searching all books…", "⌂ Главная": "⌂ Home",
+    "Читать": "Read", "Информация…": "Info…", "В избранное": "Add to favorites",
+    "Обновить обложку": "Refresh cover", "Показать в папке": "Show in folder",
+    "Удалить файл с диска?": "Delete file from disk?", "Обновление": "Update",
+    "Укажи WebDAV URL в настройках": "Set WebDAV URL in settings",
+    "Синхронизация: данные получены": "Sync: data received",
+    "Не указан URL репозитория": "Repository URL not specified",
+    "Папка приложения не является git-репозиторием": "App folder is not a git repository",
+    "Есть локальные изменения — обновление пропущено": "Local changes present — update skipped",
+    "Не удалось получить обновления из репозитория": "Could not fetch updates from repository",
+    "Автор не указан": "Unknown author", "Открыт для записи": "Open for writing",
+    "Идентификатор": "Identifier", "Путь скопирован": "Path copied",
+    "Всего времени: <b>": "Total time: <b>", "</b> · Страниц: <b>": "</b> · Pages: <b>",
+    "</b> · Серия дней: <b>": "</b> · Day streak: <b>", "(без названия)": "(untitled)",
+    "Скачано: ": "Downloaded: ", "Цель на сегодня: ": "Today's goal: ",
+    ". Копия: ": ". Copy: ", "Файл недоступен: ": "File unavailable: ",
+    "Озвучка: вкл/выкл": "Read aloud: on/off", "Следующая страница": "Next page",
+    "Удалить ": "Delete ", " файлов с диска?": " files from disk?",
+    "Укажи URL релизов в настройках": "Set release URL in settings",
+    "Не удалось проверить: ": "Check failed: ", "Синхронизация: данные отправлены": "Sync: data sent",
+    "Не удалось обновить: ": "Update failed: ", "да": "yes", "нет": "no",
+    "Самый продуктивный день: <b>": "Most productive day: <b>", "цель выполнена": "goal reached",
+    " · есть следующая страница": " · next page available", "Ошибка каталога: ": "Catalog error: ",
+    "Ошибка скачивания: ": "Download error: ",
+    "</b><br>Читалка на Qt6.<br>Данные: ": "</b><br>Reader on Qt6.<br>Data: ",
+    "Обложки готовы": "Covers ready", "Не удалось открыть": "Could not open",
+    " · гл. ": " · ch. ", "Найдено: ": "Found: ", "Доступна версия ": "Version available ",
+    "Ошибка синхронизации: ": "Sync error: ", "до цели ": "to goal ",
+    "Скан: ": "Scan: ", "Выбрано книг: ": "Books selected: ",
+    # --- окно чтения ---
+    "Ссылка на книгу скопирована": "Book link copied", "Снимок страницы в буфере": "Page screenshot in clipboard",
+    "Настройка": "Settings", "Навигация": "Navigation", "Оглавление книги": "Book contents",
+    "Заметки книги": "Book notes", "Редактор заметки": "Note editor", "Текст заметки…": "Note text…",
+    "Новая": "New", "Текст в книге…": "Text in book…", "Поиск по книге": "Find in book",
+    "0 совп.": "0 matches", "Слово…": "Word…", "Словарь": "Dictionary",
+    "Озвучка не активна": "Read aloud is not active", "Настройка рендера": "Render settings",
+    "Переименовать…": "Rename…", "Удалить закладку": "Delete bookmark", "Название:": "Name:",
+    "Изменить заметку…": "Edit note…", "Экспорт всех…": "Export all…",
+    "Введите заметку и нажми «Сохранить»": "Enter a note and press Save",
+    "Экспорт заметок": "Export notes",
+    "Markdown (*.md);;Текст (*.txt);;HTML (*.html);;JSON (*.json)": "Markdown (*.md);;Text (*.txt);;HTML (*.html);;JSON (*.json)",
+    "Закладка добавлена": "Bookmark added", "Поиск…": "Search…",
+    "Совпадений нет: у скана может отсутствовать текстовый слой": "No matches: the scan may have no text layer",
+    "Движок TTS недоступен.": "TTS engine unavailable.",
+    "Настройки сохранены для этой книги": "Settings saved for this book",
+    "Кегль": "Size", "Интерлиньяж": "Line spacing", "Отступ": "Indent", "Колонки": "Columns",
+    "◀ совп": "◀ match", "совп ▶": "match ▶", "Сейчас читает:": "Now reading:", "Далее:": "Next:",
+    "стр.": "p.", "гл.": "ch.", "Экспорт": "Export", "Заметок пока нет.": "No notes yet.",
+    "чтение": "reading", "перерыв": "break", "Стр. ": "P. ", "Заметка": "Note",
+    "Комментарий:": "Comment:", " совп.": " matches",
+    "Словари не найдены или слово отсутствует.<br><a href='https://ru.wiktionary.org/wiki/": "No dictionaries found or word missing.<br><a href='https://ru.wiktionary.org/wiki/",
+    "'>Викисловарь</a> · <a href='https://translate.google.com/?text=": "'>Wiktionary</a> · <a href='https://translate.google.com/?text=",
+    "'>Перевод</a><br><br><i>Папка со словарями StarDict: F7 → Сервисы.</i>": "'>Translate</a><br><br><i>StarDict folder: F7 → Services.</i>",
+    "Настройки: ": "Settings: ", ", гл. ": ", ch. ", "  гл.": "  ch.", "стр. ": "p. ",
+    "гл. ": "ch. ", "Оглавление: ": "Contents: ", "Таймер сна: ": "Sleep timer: ",
+    " мин": " min", "Кегль: ": "Size: ", "Тема: ": "Theme: ", "Сохранено: ": "Saved: ",
+    "</h3><p>Автор: ": "</h3><p>Author: ", "<br>Серия: ": "<br>Series: ",
+    "<br>Формат: ": "<br>Format: ", "<br>Прогресс: ": "<br>Progress: ",
+    "%<br>Время чтения: ": "%<br>Reading time: ", "<br>Файл: ": "<br>File: ",
+    "Автор: ": "Author: ", "Серия: ": "Series: ", "Формат: ": "Format: ",
+    "Прогресс: ": "Progress: ", "Время чтения: ": "Reading time: ", "Файл: ": "File: ",
+    "· гл.": "· ch.", "  гл.": "  ch.", "Часть ": "Part ",
 }
 
 
@@ -121,17 +251,40 @@ def _translate(obj, getter, setter, prop="_lr_text"):
     setter(original if S.get("language", "ru") == "ru" else T.get(original, original))
 
 
+class _DialogLanguageFilter(QObject):
+    """Переводит диалоги и меню, открываемые уже после запуска приложения."""
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Show and isinstance(obj, (QDialog, QMenu)):
+            if not obj.property("_lr_dialog_done"):
+                obj.setProperty("_lr_dialog_done", True)
+                apply_language(obj)
+        return False
+
+
+_lang_filter = None
+
+
+def _ensure_filter():
+    global _lang_filter
+    app = QApplication.instance()
+    if app is not None and _lang_filter is None:
+        _lang_filter = _DialogLanguageFilter(app)
+        app.installEventFilter(_lang_filter)
+
+
 def apply_language(root):
     """Применить выбранный язык ко всем найденным строкам интерфейса."""
     if root is None:
         return
+    _ensure_filter()
     widgets = [root] + list(root.findChildren(QWidget))
     for w in widgets:
         if isinstance(w, QLabel) or isinstance(w, (QPushButton, QToolButton, QCheckBox, QGroupBox)):
             _translate(w, w.text, w.setText)
         if isinstance(w, QLineEdit):
             _translate(w, w.placeholderText, w.setPlaceholderText, "_lr_placeholder")
-        _translate(w, w.windowTitle, w.setWindowTitle, "_lr_title")
+        _translate(w, w.windowTitle, w.setWindowTitle, "_lr_window_title")
         _translate(w, w.toolTip, w.setToolTip, "_lr_tip")
         if isinstance(w, QComboBox) and not w.isEditable():
             original = w.property("_lr_items")
@@ -140,16 +293,46 @@ def apply_language(root):
                 w.setProperty("_lr_items", original)
             for i, text in enumerate(original):
                 w.setItemText(i, text if S.get("language", "ru") == "ru" else T.get(text, text))
-        tab_bar = w.tabBar() if isinstance(w, QTabWidget) else (w if isinstance(w, QTabBar) else None)
-        if tab_bar is not None:
-            original = tab_bar.property("_lr_tabs")
-            if original is None:
-                original = [tab_bar.tabText(i) for i in range(tab_bar.count())]
-                tab_bar.setProperty("_lr_tabs", original)
+        ru = S.get("language", "ru") == "ru"
+        if isinstance(w, QTabWidget):
+            original = w.property("_lr_tabs")
+            if original is None or len(original) != w.count():
+                original = list(original or [])
+                original = [original[i] if i < len(original) else w.tabText(i)
+                            for i in range(w.count())]
+                w.setProperty("_lr_tabs", original)
+            for i in range(w.count()):
+                tab_widget = w.widget(i)
+                canonical = tab_widget.property("_lr_tab_title") if tab_widget is not None else None
+                text = canonical if canonical is not None else original[i]
+                w.setTabText(i, text if ru else T.get(text, text))
+        elif isinstance(w, QTabBar):
+            original = w.property("_lr_tabs")
+            if original is None or len(original) != w.count():
+                original = list(original or [])
+                original = [original[i] if i < len(original) else w.tabText(i)
+                            for i in range(w.count())]
+                w.setProperty("_lr_tabs", original)
             for i, text in enumerate(original):
-                tab_bar.setTabText(i, text if S.get("language", "ru") == "ru" else T.get(text, text))
+                w.setTabText(i, text if ru else T.get(text, text))
+    # у QMenu текст пункта в менюбаре привязан к заголовку меню — переводим его явно
+    bars = root.findChildren(QMenuBar)
+    if isinstance(root, QMenuBar):
+        bars = [root] + bars
+    elif hasattr(root, "menuBar"):
+        try:
+            bar = root.menuBar()
+        except Exception:
+            bar = None
+        if bar is not None:
+            bars = [bar] + bars
+    for bar in bars:
+        for action in bar.actions():
+            menu = action.menu()
+            if menu is not None:
+                _translate(menu, menu.title, menu.setTitle, "_lr_menu_title")
     for action in root.findChildren(QAction):
         _translate(action, action.text, action.setText)
         _translate(action, action.toolTip, action.setToolTip, "_lr_tip")
     for menu in root.findChildren(QMenu):
-        _translate(menu, menu.title, menu.setTitle, "_lr_title")
+        _translate(menu, menu.title, menu.setTitle, "_lr_menu_title")
