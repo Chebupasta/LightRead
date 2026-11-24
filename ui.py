@@ -15,11 +15,11 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
-                                QGraphicsOpacityEffect, QApplication, QStackedWidget)
+                                QGraphicsOpacityEffect, QApplication, QStackedWidget, QScrollArea)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
-from formats import ALL_EXTS, open_source, read_meta, FormatError
+from formats import ALL_EXTS, open_source, open_source_no_cover, read_meta, FormatError
 from library import Library
 from reader import Reader
 from views import PDF_LOCK
@@ -138,6 +138,23 @@ class Scanner(QThread):
         self.done.emit(n)
 
 
+class _UpdateWorker(QThread):
+    """Проверка обновлений в фоне, чтобы не блокировать GUI на сетевом таймауте."""
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        try:
+            from services import Update
+            self.done.emit(Update(self.url).check())
+        except Exception as e:
+            self.failed.emit(f"{type(e).__name__}: {e}")
+
+
 class CoverWorker(QThread):
     """Догружает обложки для книг, у которых их нет."""
     got = Signal(int)
@@ -158,7 +175,7 @@ class CoverWorker(QThread):
                 continue
             try:
                 with PDF_LOCK:
-                    src = open_source(path)
+                    src = open_source_no_cover(path)
                     data = src.meta.cover
                     if not data and getattr(src, "fixed", False):
                         img = opaque(src.render(0, QSize(340, 480)))
@@ -509,7 +526,12 @@ class SettingsDialog(QDialog):
         self.resize(min(600, int(g.width() * 0.85)), min(660, int(g.height() * 0.85)))
         self.s, self.live = settings, live
         lay = QVBoxLayout(self)
-        self.tabs = tabs = QTabWidget(); lay.addWidget(tabs)
+        self.tabs = tabs = QTabWidget()
+        scroller = QScrollArea()
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QFrame.Shape.NoFrame)
+        scroller.setWidget(tabs)
+        lay.addWidget(scroller, 1)
         for title, rows in SCHEMA_UI:
             w = QWidget(); fl = QFormLayout(w); fl.setSpacing(9)
             fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
@@ -1105,7 +1127,8 @@ class HomePage(QWidget):
         self.win = win
         self.setObjectName("HomePage")
         self.setAccessibleName("Главный экран")
-        root = QVBoxLayout(self)
+        inner = QWidget(self)
+        root = QVBoxLayout(inner)
         root.setContentsMargins(30, 22, 30, 22)
         root.setSpacing(18)
 
@@ -1145,6 +1168,7 @@ class HomePage(QWidget):
         col.addWidget(self.cont_label); col.addWidget(self.cont_meta); col.addWidget(self.cont_bar)
         ch.addLayout(col, 1)
         btn = QPushButton("Продолжить →"); btn.setObjectName("ContinueBtn")
+        btn.setAccessibleName("Продолжить чтение")
         btn.clicked.connect(self.win.continue_reading)
         ch.addWidget(btn)
         self.cont.hide()
@@ -1188,12 +1212,21 @@ class HomePage(QWidget):
         root.addWidget(self.goal)
 
         open_btn = QPushButton("Открыть файл…"); open_btn.setObjectName("HomeAction")
+        open_btn.setAccessibleName("Открыть файл")
         open_btn.clicked.connect(self.win.open_file)
         lib_btn = QPushButton("Перейти в библиотеку"); lib_btn.setObjectName("HomeAction")
+        lib_btn.setAccessibleName("Перейти в библиотеку")
         lib_btn.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
         actions = QHBoxLayout(); actions.addWidget(open_btn); actions.addWidget(lib_btn); actions.addStretch(1)
         root.addLayout(actions)
         root.addStretch(1)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(inner)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
 
     def _cover(self, bid, title, w, h):
         """Обложка книги или аккуратная заглушка с первой буквой названия."""
@@ -2372,6 +2405,7 @@ class Win(QMainWindow):
         button = QToolButton()
         button.setText("×")
         button.setObjectName("TabClose")
+        button.setAccessibleName("Закрыть вкладку")
         button.setToolTip("Закрыть вкладку")
         button.setCursor(Qt.ArrowCursor)
         button.clicked.connect(lambda _=False, w=widget: callback(w))
@@ -2429,28 +2463,37 @@ class Win(QMainWindow):
         OpdsDialog(self).exec()
 
     def check_updates(self, quiet=False):
-        from services import Update
         if not S.get("update_url"):
             if not quiet:
                 self.statusBar().showMessage("Укажи URL релизов в настройках", 4000)
             return
-        try:
-            info = Update(S["update_url"]).check()
-            ver = info.get("version", "")
-            if quiet:
-                if ver:
-                    self.statusBar().showMessage(f"Доступна версия {ver}", 5000)
-            else:
-                text = f"Доступна версия: {ver}"
-                if info.get("url"):
-                    text += f"\n\n{info['url']}"
-                if info.get("notes"):
-                    text += f"\n\n{info['notes']}"
-                QMessageBox.information(self, "Обновления", text)
-        except Exception as e:
-            if not quiet:
-                QMessageBox.information(self, "Обновления",
-                                        f"Не удалось проверить: {type(e).__name__}: {e}")
+        worker = getattr(self, "_update_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        worker = _UpdateWorker(S["update_url"])
+        self._update_worker = worker
+        worker.done.connect(lambda info: self._update_done(info, quiet))
+        worker.failed.connect(lambda error: self._update_failed(error, quiet))
+        worker.finished.connect(
+            lambda w=worker: setattr(self, "_update_worker", None) if getattr(self, "_update_worker") is w else None)
+        worker.start()
+
+    def _update_done(self, info, quiet=False):
+        ver = info.get("version", "")
+        if quiet:
+            if ver:
+                self.statusBar().showMessage(f"Доступна версия {ver}", 5000)
+            return
+        text = f"Доступна версия: {ver}"
+        if info.get("url"):
+            text += f"\n\n{info['url']}"
+        if info.get("notes"):
+            text += f"\n\n{info['notes']}"
+        QMessageBox.information(self, "Обновления", text)
+
+    def _update_failed(self, error, quiet=False):
+        if not quiet:
+            QMessageBox.information(self, "Обновления", f"Не удалось проверить: {error}")
 
     def _sync_client(self):
         from services import WebDav

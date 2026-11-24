@@ -21,6 +21,12 @@ CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY, book INTEGER, chapter I
  end INTEGER, color TEXT, text TEXT, note TEXT, created REAL, anchor TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS stats(day TEXT, book INTEGER, seconds REAL, pages INTEGER, PRIMARY KEY(day,book));
 CREATE INDEX IF NOT EXISTS i_title ON books(title); CREATE INDEX IF NOT EXISTS i_read ON books(last_read);
+CREATE INDEX IF NOT EXISTS i_fhash ON books(fhash);
+CREATE INDEX IF NOT EXISTS i_book_tag_book ON book_tag(book);
+CREATE INDEX IF NOT EXISTS i_coll_book_book ON coll_book(book);
+CREATE INDEX IF NOT EXISTS i_marks_book ON marks(book);
+CREATE INDEX IF NOT EXISTS i_notes_book ON notes(book);
+CREATE INDEX IF NOT EXISTS i_stats_book ON stats(book);
 """
 
 FTS_SCHEMA = """
@@ -170,16 +176,20 @@ class Library:
         r = self.q("SELECT * FROM books WHERE path=?", (norm(path),))
         return r[0] if r else None
 
-    def _smart_match(self, b, r):
+    def _smart_match(self, b, r, tagged=None):
         if r.get("status") and b["status"] != r["status"]:
             return False
         if r.get("fmt") and b["fmt"] != r["fmt"]:
             return False
         if r.get("favorite") and not b["favorite"]:
             return False
-        if r.get("tag") and not self.q("SELECT 1 FROM book_tag WHERE tag=? AND book=?",
-                                       (r["tag"], b["id"])):
-            return False
+        if r.get("tag"):
+            if tagged is not None:
+                if b["id"] not in tagged:
+                    return False
+            elif not self.q("SELECT 1 FROM book_tag WHERE tag=? AND book=?",
+                            (r["tag"], b["id"])):
+                return False
         if r.get("days") and time.time() - (b["added"] or 0) > float(r["days"]) * 86400:
             return False
         if b["progress"] < float(r.get("min_progress", 0)):
@@ -194,8 +204,12 @@ class Library:
         k = f.get("kind")
         if k == "smart":
             rule = next((x for x in S.get("smart", []) if x.get("name") == f.get("value")), None)
+            tagged = None
+            if rule and rule.get("tag"):
+                tagged = {row["book"] for row in self.q(
+                    "SELECT book FROM book_tag WHERE tag=?", (rule["tag"],))}
             rows = [r for r in self.q("SELECT * FROM books")
-                    if rule and self._smart_match(r, rule)]
+                    if rule and self._smart_match(r, rule, tagged)]
             if search:
                 q = f"%{search}%".lower()
                 rows = [r for r in rows if any(q in str(r[c] or "").lower()

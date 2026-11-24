@@ -12,6 +12,12 @@ _last = None
 
 TPL = """
 * { outline: 0; }
+/* Видимый фокус для клавиатурной навигации */
+QPushButton:focus, QToolButton:focus { border: 1px solid %(accent.default)s; }
+QTabBar::tab:focus {
+  border-bottom: 2px solid %(accent.hover)s; border-radius: %(radius.sm)s %(radius.sm)s 0 0;
+}
+QTreeWidget:focus, QListWidget:focus { border: 1px solid %(accent.default)s; }
 
 QWidget {
   background: %(bg.canvas)s; color: %(text.primary)s;
@@ -101,15 +107,10 @@ QTabBar::tab:selected {
   border-bottom: 2px solid %(accent.default)s;
 }
 QTabBar::tab:hover:!selected { color: %(text.primary)s; background: %(bg.hover)s; }
-QTabBar::close-button {
-  subcontrol-position: right; margin-right: 7px;
-  width: 11px; height: 11px; border-radius: 2px;
-}
-QTabBar::close-button:hover { background: %(bg.hover)s; }
 QToolButton#TabClose {
-  background: transparent; border: 0; border-radius: 2px;
+  background: transparent; border: 0; border-radius: 3px;
   color: %(text.tertiary)s; padding: 0; margin: 0 5px 0 2px;
-  width: 16px; height: 16px; font-size: %(font.lg)s;
+  width: 20px; height: 20px; font-size: %(font.lg)s;
 }
 QToolButton#TabClose:hover {
   background: %(bg.hover)s; color: %(text.primary)s;
@@ -209,7 +210,7 @@ QWidget#TuneBar QLabel { color: %(text.tertiary)s; font-size: %(font.sm)s; }
 QWidget#TuneBar QComboBox, QWidget#TuneBar QSpinBox {
   padding: 4px 7px; font-size: %(font.md)s; border-radius: %(radius.sm)s;
 }
-QWidget#TuneBar QSlider { min-width: 64px; max-width: 92px; }
+QWidget#TuneBar QSlider { max-width: 92px; }
 QWidget#TuneBar QPushButton { padding: 5px 10px; border-radius: %(radius.sm)s; }
 QLabel#VSep { background: %(border.subtle)s; max-width: 1px; min-width: 1px; margin: 2px 1px; }
 QLabel#Chip {
@@ -238,12 +239,6 @@ QFrame#ContinueBar {
   background: %(bg.raised)s; border: 1px solid %(border.strong)s;
   border-left: 2px solid %(accent.default)s; border-radius: %(radius.sm)s;
 }
-QLabel#ContinueLabel { color: %(text.primary)s; font-size: %(font.lg)s; }
-QPushButton#ContinueBtn {
-  background: %(accent.default)s; color: %(text.on_accent)s;
-  border: 0; border-radius: %(radius.sm)s;
-}
-
 /* ── Главный экран ─────────────────────────────────────────────────── */
 QWidget#HomePage { background: %(bg.canvas)s; }
 QLabel#HomePageTitle {
@@ -300,9 +295,8 @@ QFrame#ContinueCard QProgressBar::chunk, QFrame#GoalCard QProgressBar::chunk {
 }
 QPushButton#RecentCard {
   background: %(bg.panel)s; border: 1px solid %(border.subtle)s;
-  border-radius: %(radius.md)s; padding: 12px 10px;
+  border-radius: %(radius.md)s; padding: 10px;
   color: %(text.primary)s; font-size: %(font.md)s; text-align: left;
-  padding: 10px;
 }
 QPushButton#RecentCard:hover {
   background: %(bg.hover)s; border-color: %(accent.default)s;

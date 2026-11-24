@@ -98,7 +98,6 @@ class _PdfWorker(QThread):
 
     def stop(self):
         self._stop = True
-        self.e.wake()
 
     def run(self):
         from PySide6.QtPdf import QPdfDocument
@@ -170,16 +169,14 @@ class PdfEngine(QObject):
             self._worker.cropFound.connect(self._on_crop)
             self._worker.start()
 
-    def wake(self):
-        with self._lock:
-            pass
-
     def take(self):
         with self._lock:
             return self._jobs.pop(0) if self._jobs else None
 
     def invalidate(self):
         self.gen += 1
+        self.drop_cache()
+        self.crop.clear()
         with self._lock:
             self._jobs.clear()
 
