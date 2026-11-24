@@ -579,6 +579,15 @@ class TestRobustness(unittest.TestCase):
         lib.remove(bid)
         self.assertEqual(lib.q("SELECT count(*) c FROM book_tag")[0]["c"], 0)
 
+    def test_git_update_worker_without_repo(self):
+        from PySide6.QtCore import QEventLoop, QTimer
+        worker = ui._GitUpdateWorker("")
+        loop = QEventLoop(); result = []
+        worker.done.connect(lambda status, msg: (result.append((status, msg)), loop.quit()))
+        QTimer.singleShot(3000, loop.quit)
+        worker.start(); loop.exec(); worker.wait(500)
+        self.assertTrue(result and result[0][0] == "error")
+
     def test_global_search_worker(self):
         from PySide6.QtCore import QEventLoop, QTimer
         book = make_book(TMP / "gsearch.fb2", "Поисковая")

@@ -155,6 +155,47 @@ class _UpdateWorker(QThread):
             self.failed.emit(f"{type(e).__name__}: {e}")
 
 
+class _GitUpdateWorker(QThread):
+    """Проверка и быстрая установка обновлений из git-репозитория."""
+    done = Signal(str, str)  # status, message
+
+    def __init__(self, repo, parent=None):
+        super().__init__(parent)
+        self.repo = repo.strip()
+
+    def _git(self, *args):
+        return subprocess.run(["git", *args], cwd=str(Path(__file__).resolve().parent),
+                              capture_output=True, text=True, timeout=120)
+
+    def run(self):
+        try:
+            if not self.repo:
+                self.done.emit("error", "Не указан URL репозитория")
+                return
+            if self._git("rev-parse", "--is-inside-work-tree").returncode:
+                self.done.emit("error", "Папка приложения не является git-репозиторием")
+                return
+            if self._git("status", "--porcelain").stdout.strip():
+                self.done.emit("error", "Есть локальные изменения — обновление пропущено")
+                return
+            self._git("remote", "set-url", "origin", self.repo)
+            if self._git("fetch", "origin", "master", "--quiet").returncode:
+                self.done.emit("error", "Не удалось получить обновления из репозитория")
+                return
+            local = self._git("rev-parse", "HEAD").stdout.strip()
+            remote = self._git("rev-parse", "origin/master").stdout.strip()
+            if local == remote:
+                self.done.emit("current", "Обновлений нет")
+                return
+            pull = self._git("pull", "--ff-only", "origin", "master")
+            if pull.returncode:
+                self.done.emit("error", "Не удалось обновить: " + pull.stderr.strip()[:200])
+                return
+            self.done.emit("updated", "Приложение обновлено")
+        except Exception as e:
+            self.done.emit("error", f"{type(e).__name__}: {e}")
+
+
 class _GlobalSearchWorker(QThread):
     """Поиск фразы по тексту всех книг без блокировки GUI."""
     done = Signal(object)
@@ -544,6 +585,8 @@ SCHEMA_UI = [
         ("webdav_auto", "Синхронизировать при закрытии", "bool"),
         ("update_url", "URL релизов (GitHub API)", "text"),
         ("update_auto", "Проверять обновления при запуске", "bool"),
+        ("update_repo", "URL git-репозитория для автообновления", "text"),
+        ("auto_git_update", "Обновляться из репозитория при запуске", "bool"),
         ("show_network", "Показывать сетевые функции", "bool"),
     ]),
     ("Библиотека", [
@@ -1750,6 +1793,8 @@ class Win(QMainWindow):
             self.update_watcher()
         if S.get("update_auto") and S.get("update_url"):
             QTimer.singleShot(2000, lambda: self.check_updates(quiet=True))
+        if S.get("auto_git_update") and S.get("update_repo"):
+            QTimer.singleShot(2500, lambda: self.auto_git_update(quiet=True))
 
     def restore_session(self):
         ids = [int(x) for x in S.get("session_tabs", []) if str(x).isdigit()]
@@ -1800,6 +1845,7 @@ class Win(QMainWindow):
         m.addAction("Все заметки…", self.all_notes)
         m.addAction("Искать по всем книгам…", self.global_search, QKeySequence("Ctrl+Shift+F"))
         m.addAction("Случайная книга", self.open_random_book, QKeySequence("Ctrl+Shift+R"))
+        m.addAction("Обновить из репозитория…", lambda: self.auto_git_update(quiet=False))
         m.addAction("Свойства файла…", self.file_properties, QKeySequence("Alt+Enter"))
         if S.get("show_network"):
             m.addAction("OPDS-каталоги…", self.opds)
@@ -2681,6 +2727,28 @@ class Win(QMainWindow):
 
     def opds(self):
         OpdsDialog(self).exec()
+
+    def auto_git_update(self, quiet=False):
+        worker = getattr(self, "_git_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        worker = _GitUpdateWorker(S.get("update_repo", ""), self)
+        self._git_worker = worker
+        worker.done.connect(lambda status, msg: self._git_update_done(status, msg, quiet))
+        worker.start()
+
+    def _git_update_done(self, status, message, quiet=False):
+        if status == "updated":
+            answer = QMessageBox.question(
+                self, "Обновление", f"{message}\n\nПерезапустить приложение?",
+                QMessageBox.Yes | QMessageBox.No)
+            if answer == QMessageBox.Yes:
+                from PySide6.QtCore import QProcess
+                script = str(Path(__file__).resolve().parent / "main.py")
+                QTimer.singleShot(200, lambda: (
+                    QProcess.startDetached(sys.executable, [script]), QApplication.quit()))
+        elif not quiet:
+            self.statusBar().showMessage(message, 5000)
 
     def check_updates(self, quiet=False):
         if not S.get("update_url"):
