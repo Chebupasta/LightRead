@@ -322,8 +322,8 @@ class BookDelegate(QStyledItemDelegate):
             avail = 0
         if avail < 120:
             return 192
-        cols = max(1, avail // 166)
-        return max(150, min(240, avail // cols - 8))
+        cols = max(1, avail // 210)
+        return max(180, min(280, avail // cols - 10))
 
     def sizeHint(self, opt, idx):
         if not self.grid:
@@ -333,7 +333,7 @@ class BookDelegate(QStyledItemDelegate):
                 w = 520
             return QSize(max(280, min(520, w)), 86)
         w = self._card_width()
-        return QSize(w, round(w * 1.59))
+        return QSize(w, round(w * 1.5))
 
     def _status_color(self, status):
         roles = {"read": "status.success", "reading": "status.info",
@@ -477,18 +477,13 @@ class BookDelegate(QStyledItemDelegate):
             f = p.font(); f.setPointSize(11); f.setWeight(QFont.Medium); p.setFont(f)
             p.setPen(fg)
             fm = p.fontMetrics()
-            line1 = fm.elidedText(b["title"], Qt.ElideRight, int(r.width()))
-            ty = cover.bottom() + 10
-            p.drawText(QRectF(r.x(), ty, r.width(), 16), Qt.AlignLeft | Qt.AlignVCenter, line1)
-            rest = b["title"][max(0, len(line1) - 1):] if line1.endswith("…") else ""
-            if rest:
-                line2 = fm.elidedText(rest, Qt.ElideRight, int(r.width()))
-                p.drawText(QRectF(r.x(), ty + 15, r.width(), 16), Qt.AlignLeft | Qt.AlignVCenter, line2)
-                ty += 15
+            line = fm.elidedText(b["title"], Qt.ElideRight, int(r.width() - 4))
+            ty = cover.bottom() + 8
+            p.drawText(QRectF(r.x(), ty, r.width(), 17), Qt.AlignLeft | Qt.AlignVCenter, line)
             f.setPointSize(9); f.setWeight(QFont.Normal); p.setFont(f); p.setPen(dim)
             p.drawText(QRectF(r.x(), ty + 17, r.width(), 15), Qt.AlignLeft | Qt.AlignVCenter,
                        fm.elidedText(b["author"] or "Автор не указан", Qt.ElideRight, int(r.width())))
-            my = cover.bottom() + 66
+            my = cover.bottom() + 48
             self._dot(p, r.x() + 1, my + 4, fmt_col, 5)
             p.setPen(faint); f.setPointSize(8); p.setFont(f)
             p.drawText(QRectF(r.x() + 11, my, r.width() - 44, 16), Qt.AlignLeft | Qt.AlignVCenter,
