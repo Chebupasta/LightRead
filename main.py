@@ -106,7 +106,10 @@ def main():
 
     srv.newConnection.connect(on_conn)
     QTimer.singleShot(300, lambda: [win.import_path(p, open_it=True) for p in args if Path(p).is_file()])
-    return app.exec()
+    try:
+        return app.exec()
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == "__main__":

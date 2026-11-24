@@ -605,6 +605,25 @@ class TestRobustness(unittest.TestCase):
         finally:
             dlg.close()
 
+    def test_all_notes_delete(self):
+        from PySide6.QtWidgets import QMessageBox
+        db = TMP / f"notes_del_{self.id()}.db"
+        lib = libmod.Library(path=str(db))
+        bid = lib.upsert(dict(path=str(make_book(TMP / f"notes_del_{self.id()}.fb2")),
+                              fmt="fb2", title="Книга", author="", series="", seq=0, lang="ru",
+                              annotation="", genres="", size=100, mtime=0))
+        lib.note_add(bid, 0, 0, 1, "#fff", "Цитата", "Удалить меня", anchor="")
+        dialog = ui.AllNotesDialog(lib)
+        old = QMessageBox.question
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        try:
+            dialog.list.setCurrentRow(0)
+            dialog.delete_current()
+        finally:
+            QMessageBox.question = old
+        self.assertEqual(lib.q("SELECT count(*) c FROM notes")[0]["c"], 0)
+        dialog.close()
+
     def test_all_notes_tolerates_null_note(self):
         db = TMP / f"notesnull_{self.id()}.db"
         lib = libmod.Library(path=str(db))

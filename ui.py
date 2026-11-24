@@ -1152,6 +1152,11 @@ class AllNotesDialog(QDialog):
         bb = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Close)
         bb.accepted.connect(self.open_current); bb.rejected.connect(self.reject)
         bb.button(QDialogButtonBox.Open).setDefault(True)
+        delete = QPushButton("Удалить"); delete.setObjectName("HomeAction")
+        delete.clicked.connect(self.delete_current)
+        bb.addButton(delete, QDialogButtonBox.ActionRole)
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self.note_menu)
         lay.addWidget(bb)
         self.reload()
         QTimer.singleShot(0, self.q.setFocus)
@@ -1175,10 +1180,34 @@ class AllNotesDialog(QDialog):
         if not it:
             return
         r = it.data(Qt.UserRole)
+        win = QApplication.instance().property("main_window") or self.parent()
+        if win is None or not hasattr(win, "open_book"):
+            return
         self.accept()
-        win = self.parent()
         win.open_book(r["book"])
         QTimer.singleShot(150, lambda: self.focus_note(win.reader, r["id"]))
+
+    def note_menu(self, pos):
+        it = self.list.itemAt(pos)
+        if not it:
+            return
+        menu = QMenu(self)
+        menu.addAction("Удалить заметку", lambda: self._delete(it.data(Qt.UserRole)))
+        menu.exec(self.list.viewport().mapToGlobal(pos))
+
+    def delete_current(self):
+        it = self.list.currentItem()
+        if it:
+            self._delete(it.data(Qt.UserRole))
+
+    def _delete(self, note):
+        if not note:
+            return
+        if QMessageBox.question(self, "Удалить заметку",
+                                "Удалить выбранную заметку?") != QMessageBox.Yes:
+            return
+        self.lib.note_del(note["id"])
+        self.reload()
 
     @staticmethod
     def focus_note(reader, nid):
