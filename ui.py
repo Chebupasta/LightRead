@@ -2044,7 +2044,7 @@ class Win(QMainWindow):
 
     def toggle_view(self):
         self.set_view("list" if self.deleg.grid else "grid")
-        fade_widget(self.list, 130, 0.9)
+        fade_widget(self.list, 200, 0.6)
 
     def toggle_tree(self):
         self.tree.setVisible(not self.tree.isVisible())
@@ -2454,13 +2454,13 @@ class Win(QMainWindow):
         return button
 
     def _fade_in(self, widget):
-        fade_widget(widget, 150, 0.7)
+        fade_widget(widget, 220, 0.5)
 
     def _animate_tab(self, i):
         widget = self.book_tabs.widget(i)
         if widget is None or widget.property("panel_key") is not None:
             return  # панель уже проявляется сама
-        fade_widget(widget, 120, 0.92)
+        fade_widget(widget, 220, 0.6)
 
     def close_dialog_tab(self, dlg):
         idx = self.book_tabs.indexOf(dlg)
