@@ -847,8 +847,12 @@ class FixedView(QWidget):
         if anchor is None:
             QTimer.singleShot(0, self._center_and_update)
             cx = (self.ox + self._view_w() / 2) / s
-        self._tx = max(0.0, cx * s - self._view_w() / 2)
-        self._ty = max(0.0, cy * s - self.height() / 2)
+        hmax = max(0.0, self.docw - self._view_w())
+        vmax = max(0.0, self.total - self.height())
+        # Страница всегда остаётся по центру по горизонтали — зум тачпадом не должен
+        # уводить её влево, даже если курсор был не в центре.
+        self._tx = hmax / 2.0
+        self._ty = min(max(0.0, cy * s - self.height() / 2), vmax)
         self.ox, self.oy = self._tx, self._ty
         self._sync_bars(); self.update()
         self.zoomChanged.emit(self.scale * 100)
@@ -946,7 +950,7 @@ class FixedView(QWidget):
         self._sync_bars(); self._update_page(); self.update()
 
     def _scroll_to(self, x, y, smooth=True):
-        self._tx = max(0.0, min(x, max(0.0, self.docw - self.width())))
+        self._tx = max(0.0, min(x, max(0.0, self.docw - self._view_w())))
         self._ty = max(0.0, min(y, max(0.0, self.total - self.height())))
         if smooth and not self._anim.isActive():
             self._anim.start()
