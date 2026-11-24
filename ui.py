@@ -1628,10 +1628,7 @@ class Win(QMainWindow):
                 a.setShortcut(QKeySequence(sc))
             a.triggered.connect(s); tb.addAction(a); return a
 
-        act("Открыть файл", self.open_file, "Ctrl+O")
-        act("Сканировать", self.scan, "F5")
-        act("Обложки", self.fetch_covers)
-        act("Папки", self.folders)
+        act("Открыть", self.open_file, "Ctrl+O")
         tb.addSeparator()
         self.q = QLineEdit(); self.q.setPlaceholderText("Поиск по библиотеке…")
         self.q.setAccessibleName("Поиск по библиотеке")
@@ -1648,15 +1645,7 @@ class Win(QMainWindow):
         self.sort.setCurrentIndex(max(0, self.sort.findData(S["sort"])))
         self.sort.currentIndexChanged.connect(self.sort_changed)
         tb.addWidget(self.sort)
-        act("Сетка / Список", self.toggle_view, "Ctrl+D")
-        act("Дерево", self.toggle_tree, "F9")
         act("Настройки", self.settings, "F7")
-        self.fav_btn = QToolButton(); self.fav_btn.setText("★ Избранное")
-        self.fav_btn.setPopupMode(QToolButton.InstantPopup)
-        self.fav_menu = QMenu(self.fav_btn)
-        self.fav_menu.aboutToShow.connect(self.fill_fav_menu)
-        self.fav_btn.setMenu(self.fav_menu)
-        tb.addWidget(self.fav_btn)
 
         m = self.menuBar().addMenu("Файл")
         m.addAction("Открыть файл…", self.open_file)
@@ -1676,6 +1665,9 @@ class Win(QMainWindow):
         m.addAction("Восстановить из копии…", self.restore)
         m.addSeparator()
         m.addAction("Выход", self.close, QKeySequence("Ctrl+Q"))
+        v = self.menuBar().addMenu("Вид")
+        v.addAction("Сетка / Список", self.toggle_view, QKeySequence("Ctrl+D"))
+        v.addAction("Дерево библиотеки", self.toggle_tree, QKeySequence("F9"))
         h = self.menuBar().addMenu("Справка")
         h.addAction("Горячие клавиши", self.hotkeys)
         if S.get("show_network"):
@@ -2258,16 +2250,6 @@ class Win(QMainWindow):
         n = self.book_tabs.count()
         if n > 1:
             self.book_tabs.setCurrentIndex((self.book_tabs.currentIndex() + d) % n)
-
-    def fill_fav_menu(self):
-        self.fav_menu.clear()
-        rows = self.lib.q("SELECT id,title FROM books WHERE favorite=1 ORDER BY title LIMIT 40")
-        if not rows:
-            self.fav_menu.addAction("Нет избранных книг").setEnabled(False)
-            return
-        for r in rows:
-            self.fav_menu.addAction((r["title"] or "Без названия")[:55],
-                                    lambda bid=r["id"]: self.open_book(bid))
 
     def close_tab(self, i):
         w = self.book_tabs.widget(i)
