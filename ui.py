@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
-                                QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QApplication, QStackedWidget, QScrollArea)
+                                QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QApplication, QStackedWidget, QScrollArea, QBoxLayout)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
@@ -1203,9 +1203,13 @@ class HomePage(QWidget):
         self.setObjectName("HomePage")
         self.setAccessibleName("Главный экран")
         inner = QWidget(self)
-        root = QVBoxLayout(inner)
+        root = QBoxLayout(QBoxLayout.LeftToRight, inner)
+        self._home_root = root
+        self._home_narrow = False
         root.setContentsMargins(30, 22, 30, 22)
-        root.setSpacing(18)
+        root.setSpacing(24)
+        left_col = QVBoxLayout(); left_col.setSpacing(16)
+        right_col = QVBoxLayout(); right_col.setSpacing(14)
 
         header = QHBoxLayout(); header.setSpacing(8)
         page_title = QLabel("Главная")
@@ -1215,14 +1219,14 @@ class HomePage(QWidget):
         self.page_hint = page_hint
         header.addWidget(page_title); header.addWidget(page_hint, 0, Qt.AlignBottom)
         header.addStretch(1)
-        root.addLayout(header)
+        left_col.addLayout(header)
 
         rule = QFrame(); rule.setObjectName("HomeDivider"); rule.setFrameShape(QFrame.HLine)
-        root.addWidget(rule)
+        left_col.addWidget(rule)
 
         title = QLabel("Продолжить чтение")
         title.setObjectName("HomeTitle")
-        root.addWidget(title)
+        left_col.addWidget(title)
 
         self.cont = QFrame()
         self.cont.setObjectName("ContinueCard")
@@ -1247,12 +1251,12 @@ class HomePage(QWidget):
         btn.clicked.connect(self.win.continue_reading)
         ch.addWidget(btn)
         self.cont.hide()
-        root.addWidget(self.cont)
+        left_col.addWidget(self.cont)
         self._card_shadow(self.cont)
 
         stats_title = QLabel("Статистика")
         stats_title.setObjectName("SectionTitle")
-        root.addWidget(stats_title)
+        right_col.addWidget(stats_title)
 
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
         sl = QVBoxLayout(self.stats); sl.setContentsMargins(16, 14, 16, 14); sl.setSpacing(10)
@@ -1260,6 +1264,7 @@ class HomePage(QWidget):
         for col in range(4):
             grid.setColumnStretch(col, 1)
         self.stat_values = {}
+        self.stat_cells = []
         metrics = (("books", "Всего книг"), ("read", "Прочитано"), ("reading", "Читаю сейчас"),
                    ("hours", "Время чтения"), ("pages", "Страниц"), ("streak", "Серия дней"),
                    ("marks", "Закладки"), ("notes", "Заметки"))
@@ -1268,8 +1273,10 @@ class HomePage(QWidget):
             value = QLabel("—"); value.setObjectName("StatValue")
             label = QLabel(caption); label.setObjectName("StatCaption")
             cell.addWidget(value); cell.addWidget(label)
-            grid.addLayout(cell, i // 4, i % 4)
+            self.stat_cells.append(cell)
             self.stat_values[key] = value
+        self.stat_grid = grid
+        self._layout_stats(4)
         sl.addLayout(grid)
         heat_title = QLabel("Активность чтения · 90 дней")
         heat_title.setObjectName("HomeSubtle")
@@ -1277,7 +1284,7 @@ class HomePage(QWidget):
         self.heat = StatsHeat({}, 13, self)
         self.heat.setMaximumHeight(96)
         sl.addWidget(self.heat)
-        root.addWidget(self.stats)
+        right_col.addWidget(self.stats)
         self._card_shadow(self.stats)
 
         self.quote = QFrame(); self.quote.setObjectName("QuoteCard")
@@ -1292,7 +1299,7 @@ class HomePage(QWidget):
         share.clicked.connect(self._share_quote)
         qh.addWidget(share, 0, Qt.AlignVCenter)
         self.quote.hide()
-        root.addWidget(self.quote)
+        left_col.addWidget(self.quote)
 
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
         gl = QHBoxLayout(self.goal); gl.setContentsMargins(14, 12, 14, 12)
@@ -1300,7 +1307,7 @@ class HomePage(QWidget):
         self.goal_bar = QProgressBar(); self.goal_bar.setFixedHeight(3)
         self.goal_bar.setTextVisible(False)
         gl.addWidget(self.goal_label, 1); gl.addWidget(self.goal_bar, 2)
-        root.addWidget(self.goal)
+        right_col.addWidget(self.goal)
 
         open_btn = QPushButton("Открыть файл…"); open_btn.setObjectName("HomeAction")
         open_btn.setAccessibleName("Открыть файл")
@@ -1309,8 +1316,12 @@ class HomePage(QWidget):
         lib_btn.setAccessibleName("Перейти в библиотеку")
         lib_btn.clicked.connect(lambda: self.win.book_tabs.setCurrentIndex(LIB_TAB))
         actions = QHBoxLayout(); actions.addWidget(open_btn); actions.addWidget(lib_btn); actions.addStretch(1)
-        root.addLayout(actions)
-        root.addStretch(1)
+        left_col.addLayout(actions)
+        left_col.addStretch(1)
+        root.addLayout(left_col, 3)
+        root.addLayout(right_col, 2)
+        root.setAlignment(left_col, Qt.AlignTop)
+        root.setAlignment(right_col, Qt.AlignTop)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -1319,6 +1330,23 @@ class HomePage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def _layout_stats(self, cols):
+        grid = getattr(self, "stat_grid", None)
+        if grid is None:
+            return
+        while grid.count():
+            grid.takeAt(0)
+        for i, cell in enumerate(getattr(self, "stat_cells", [])):
+            grid.addLayout(cell, i // cols, i % cols)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        narrow = self.width() < 980
+        if getattr(self, "_home_narrow", None) != narrow:
+            self._home_narrow = narrow
+            self._home_root.setDirection(QBoxLayout.TopToBottom if narrow else QBoxLayout.LeftToRight)
+            self._layout_stats(2 if narrow else 4)
 
     def _share_quote(self):
         text = getattr(self, "_quote_text", "")
