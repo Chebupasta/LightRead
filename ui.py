@@ -1645,7 +1645,6 @@ class Win(QMainWindow):
         act("Сетка / Список", self.toggle_view, "Ctrl+D")
         act("Дерево", self.toggle_tree, "F9")
         act("Настройки", self.settings, "F7")
-        act("Статистика", self.stats)
         self.fav_btn = QToolButton(); self.fav_btn.setText("★ Избранное")
         self.fav_btn.setPopupMode(QToolButton.InstantPopup)
         self.fav_menu = QMenu(self.fav_btn)
@@ -2196,7 +2195,6 @@ class Win(QMainWindow):
             ("Сканировать", w.scan),
             ("Сетка / Список", w.toggle_view),
             ("Настройки", w.settings),
-            ("Статистика", w.stats),
             ("Свойства файла…", w.file_properties),
             ("⌂ Главная", lambda: w.book_tabs.setCurrentIndex(HOME_TAB)),
             ("Библиотека", lambda: w.book_tabs.setCurrentIndex(LIB_TAB)),
@@ -2435,9 +2433,6 @@ class Win(QMainWindow):
             self.set_view(S["view"]); self.reload()
 
         self.open_dialog_tab(d, "Настройки", accepted)
-
-    def stats(self):
-        self.open_dialog_tab(StatsDialog(self.lib, self), "Статистика")
 
     def all_notes(self):
         self.open_dialog_tab(AllNotesDialog(self.lib, self), "Все заметки")
