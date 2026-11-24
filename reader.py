@@ -309,6 +309,10 @@ class Reader(QMainWindow):
         self._tts_timer.timeout.connect(self.tts_word_tick)
         QShortcut(QKeySequence("Escape"), self, self.escape_full)
         self.t0 = time.time()
+        self._last_tick = self.t0
+        self._active_secs = 0.0
+        self._pages_read = 0
+        self._stats_saved = False
         self._pos0 = self.view.position()[1]
         self._notes = [dict(r) for r in lib.notes(self.bid)]
         self.view.notes = self._notes
@@ -331,9 +335,12 @@ class Reader(QMainWindow):
         self._auto = QTimer(self); self._auto.timeout.connect(self.autoscroll_tick)
         self._sleep = QTimer(self); self._sleep.setSingleShot(True); self._sleep.timeout.connect(self.sleep_done)
         self._clock = QTimer(self); self._clock.setInterval(20000)
-        self._clock.timeout.connect(self.on_changed); self._clock.start()
+        self._clock.timeout.connect(self.on_changed)
+        self._clock.timeout.connect(self._tick_activity)
+        self._clock.start()
         self.view.restore(self.row["chapter"], self.row["pos"])
         self._progress0 = self.view.progress()
+        self._last_page = self.view.page
         QTimer.singleShot(60, self.on_changed)
         self.view.setFocus()
 
@@ -756,7 +763,18 @@ class Reader(QMainWindow):
             export_notes(rows, self.row, p)
             QMessageBox.information(self, "Экспорт", f"Сохранено: {p}")
 
+    def _tick_activity(self):
+        now = time.time()
+        if self.isActiveWindow() and not self._sleep.isActive():
+            self._active_secs += max(0.0, now - self._last_tick)
+        self._last_tick = now
+
     def on_changed(self):
+        page = getattr(self.view, "page", 0)
+        last = getattr(self, "_last_page", None)
+        if last is not None and page > last:
+            self._pages_read += min(page - last, 50)
+        self._last_page = page
         ch, pos = self.view.position()
         prog = self.view.progress()
         title = self.view.chap.title if getattr(self.view, "chap", None) else self.row["title"]
@@ -812,10 +830,10 @@ class Reader(QMainWindow):
         self.save_pos()
         self.tts.stop()
         self._tts_clear()
-        secs = time.time() - self.t0
-        pages = 1 if self.fixed else max(0, int((self.view.progress() - self._progress0)
-                                                 * max(1, self.src.count)))
-        self.lib.stats_add(self.bid, secs, pages)
+        if not self._stats_saved:
+            self._tick_activity()
+            self.lib.stats_add(self.bid, max(0, int(self._active_secs)), max(0, self._pages_read))
+            self._stats_saved = True
         try:
             self.view.shutdown()
             self.src.close()

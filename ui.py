@@ -1262,9 +1262,10 @@ class HomePage(QWidget):
         self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
         self.stat_values["books"].setText(str(total))
         self.stat_values["read"].setText(str(lib.q(
-            "SELECT count(*) c FROM books WHERE progress>=0.995")[0]["c"]))
+            "SELECT count(*) c FROM books WHERE progress>=0.995 OR status='read'")[0]["c"]))
         self.stat_values["reading"].setText(str(lib.q(
-            "SELECT count(*) c FROM books WHERE progress>0.001 AND progress<0.995")[0]["c"]))
+            "SELECT count(*) c FROM books WHERE (progress>0.001 AND progress<0.995) "
+            "OR status='reading'")[0]["c"]))
         stat_rows = lib.stats()
         days = {r["day"]: (r["s"] or 0) for r in stat_rows}
         self.heat.days = days
@@ -1272,7 +1273,8 @@ class HomePage(QWidget):
         self.stat_values["hours"].setText(hms(int(sum(days.values()))))
         self.stat_values["pages"].setText(str(sum(int(r["p"] or 0) for r in stat_rows)))
         streak, day = 0, date.today()
-        while days.get(day.isoformat(), 0) > 0:
+        while days.get(day.isoformat(), 0) > 0 or any(
+                r["day"] == day.isoformat() and (r["p"] or 0) > 0 for r in stat_rows):
             streak += 1
             day -= timedelta(days=1)
         self.stat_values["streak"].setText(str(streak))
