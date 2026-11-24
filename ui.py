@@ -1194,6 +1194,76 @@ class AllNotesDialog(QDialog):
                 break
 
 
+class MiniBars(QWidget):
+    """Мини-график чтения по дням."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.values = []
+        self.labels = []
+        self.setMinimumHeight(84)
+
+    def set_values(self, values, labels=None):
+        self.values = list(values)
+        self.labels = list(labels or [])
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        col = chrome(theme(S["theme"]))
+        if not self.values:
+            p.setPen(QColor(col["text.tertiary"]))
+            p.drawText(self.rect(), Qt.AlignCenter, "Нет данных за период")
+            return
+        top = 6
+        bottom = self.height() - 14
+        peak = max(self.values) or 1
+        slot = self.width() / len(self.values)
+        bar_w = max(2.0, slot - 3)
+        for i, value in enumerate(self.values):
+            h = (value / peak) * max(1, bottom - top)
+            x = i * slot + 1
+            color = QColor(col["accent.hover"] if i == len(self.values) - 1 else col["accent.default"])
+            p.fillRect(QRectF(x, bottom - h, bar_w, h), color)
+            if self.labels and i % 3 == 0:
+                p.setPen(QColor(col["text.tertiary"]))
+                p.drawText(QRectF(x, bottom + 1, slot, 12), Qt.AlignCenter, self.labels[i])
+
+
+class StatusDonut(QWidget):
+    """Кольцо с распределением книг по статусам."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parts = []
+        self.setFixedSize(96, 96)
+
+    def set_parts(self, parts):
+        self.parts = list(parts)
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        col = chrome(theme(S["theme"]))
+        rect = QRectF(10, 10, self.width() - 20, self.height() - 20)
+        total = sum(v for v, _ in self.parts)
+        p.setPen(QPen(QColor(col["border.subtle"]), 9))
+        p.drawArc(rect, 0, 5760)
+        if total:
+            angle = 90 * 16
+            for value, color in self.parts:
+                if value <= 0:
+                    continue
+                span = int(5760 * value / total)
+                p.setPen(QPen(QColor(col[color]), 9))
+                p.drawArc(rect, -angle, -span)
+                angle += span
+        p.setPen(QColor(col["text.secondary"]))
+        p.drawText(self.rect(), Qt.AlignCenter, str(total))
+
+
 class HomePage(QWidget):
     """Главный экран: продолжить чтение, недавние книги и цель."""
 
@@ -1284,6 +1354,12 @@ class HomePage(QWidget):
         self.heat = StatsHeat({}, 13, self)
         self.heat.setMaximumHeight(96)
         sl.addWidget(self.heat)
+        charts = QHBoxLayout(); charts.setSpacing(12)
+        self.bars = MiniBars(self)
+        self.donut = StatusDonut(self)
+        charts.addWidget(self.bars, 1)
+        charts.addWidget(self.donut, 0, Qt.AlignVCenter)
+        sl.addLayout(charts)
         right_col.addWidget(self.stats)
         self._card_shadow(self.stats)
 
@@ -1383,15 +1459,22 @@ class HomePage(QWidget):
         total = lib.q("SELECT count(*) c FROM books")[0]["c"]
         self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
         self.stat_values["books"].setText(str(total))
-        self.stat_values["read"].setText(str(lib.q(
-            "SELECT count(*) c FROM books WHERE progress>=0.995 OR status='read'")[0]["c"]))
-        self.stat_values["reading"].setText(str(lib.q(
+        read_count = lib.q("SELECT count(*) c FROM books WHERE progress>=0.995 OR status='read'")[0]["c"]
+        reading_count = lib.q(
             "SELECT count(*) c FROM books WHERE (progress>0.001 AND progress<0.995) "
-            "OR status='reading'")[0]["c"]))
+            "OR status='reading'")[0]["c"]
+        self.stat_values["read"].setText(str(read_count))
+        self.stat_values["reading"].setText(str(reading_count))
+        self.donut.set_parts([(read_count, "status.success"),
+                              (reading_count, "accent.default"),
+                              (max(0, total - read_count - reading_count), "text.tertiary")])
         stat_rows = lib.stats()
         days = {r["day"]: (r["s"] or 0) for r in stat_rows}
         self.heat.days = days
         self.heat.update()
+        span = [date.today() - timedelta(days=i) for i in range(13, -1, -1)]
+        self.bars.set_values([int(days.get(d.isoformat(), 0) // 60) for d in span],
+                             [str(d.day) for d in span])
         self.stat_values["hours"].setText(hms(int(sum(days.values()))))
         self.stat_values["pages"].setText(str(sum(int(r["p"] or 0) for r in stat_rows)))
         streak, day = 0, date.today()
