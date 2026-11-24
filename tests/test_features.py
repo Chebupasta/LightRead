@@ -991,12 +991,14 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.home.refresh()
         self.assertIn("Запомнить эту мысль", self.win.home._quote_text)
 
-    def test_share_quote_and_random_book(self):
+    def test_share_book_and_random_book(self):
         from PySide6.QtWidgets import QApplication
         self.win.open_book(self.bid)
         r = self.win.reader
-        r.share_quote()
-        self.assertIn("Тестовая книга", QApplication.clipboard().text())
+        r.share_page()
+        self.assertIn("chapter=", QApplication.clipboard().text())
+        r.share_link()
+        self.assertIn("file:", QApplication.clipboard().text())
         self.win.open_random_book()
         self.assertIsNotNone(self.win.reader)
         for reader in list(self.win.readers):
