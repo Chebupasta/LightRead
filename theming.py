@@ -207,11 +207,18 @@ QSplitter::handle:hover { background: %(accent.default)s; }
 /* ── Панель живой настройки рендера ───────────────────────────────── */
 QWidget#TuneBar { background: %(bg.panel)s; border-top: 1px solid %(border.subtle)s; }
 QWidget#TuneBar QLabel { color: %(text.tertiary)s; font-size: %(font.sm)s; }
-QWidget#TuneBar QComboBox, QWidget#TuneBar QSpinBox {
-  padding: 4px 7px; font-size: %(font.md)s; border-radius: %(radius.sm)s;
+QWidget#TuneBar QComboBox, QWidget#TuneBar QSpinBox, QWidget#TuneBar QFontComboBox {
+  background: %(bg.raised)s; border: 1px solid %(border.subtle)s;
+  border-radius: %(radius.sm)s; padding: 2px 8px;
+  min-height: 26px; max-height: 26px; font-size: %(font.md)s;
 }
-QWidget#TuneBar QSlider { max-width: 92px; }
-QWidget#TuneBar QPushButton { padding: 5px 10px; border-radius: %(radius.sm)s; }
+QWidget#TuneBar QComboBox:hover, QWidget#TuneBar QSpinBox:hover,
+QWidget#TuneBar QFontComboBox:hover { border-color: %(accent.subtle)s; }
+QWidget#TuneBar QSlider { max-width: 92px; min-height: 26px; }
+QWidget#TuneBar QCheckBox { min-height: 26px; spacing: 6px; font-size: %(font.md)s; }
+QWidget#TuneBar QPushButton {
+  padding: 4px 12px; min-height: 26px; border-radius: %(radius.sm)s;
+}
 QLabel#VSep { background: %(border.subtle)s; max-width: 1px; min-width: 1px; margin: 2px 1px; }
 QLabel#Chip {
   background: %(bg.subtle)s; color: %(text.secondary)s;
