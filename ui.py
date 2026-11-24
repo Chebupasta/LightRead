@@ -1496,6 +1496,26 @@ class CommandPalette(QDialog):
         self._fire(it)
 
 
+def fade_widget(widget, duration=140, start=0.85):
+    """Короткое мягкое проявление виджета без lasting graphic effects."""
+    effect = QGraphicsOpacityEffect(widget)
+    effect.setOpacity(start)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(duration)
+    anim.setStartValue(start)
+    anim.setEndValue(1.0)
+    widget._fade_anim = anim
+
+    def done():
+        widget.setGraphicsEffect(None)
+        anim.deleteLater()
+
+    anim.finished.connect(done)
+    anim.start()
+    return anim
+
+
 class BrowserTabs(QWidget):
     """Панель вкладок в стиле браузера."""
 
@@ -1789,6 +1809,7 @@ class Win(QMainWindow):
         props = QShortcut(QKeySequence("Alt+Enter"), self.library_page, self.file_properties)
         props.setContext(Qt.WidgetWithChildrenShortcut)
         self.book_tabs.currentChanged.connect(self.on_tab_changed)
+        self.book_tabs.currentChanged.connect(self._animate_tab)
         self.pb = QProgressBar(); self.pb.setMaximumWidth(220); self.pb.hide()
         self.statusBar().addPermanentWidget(self.pb)
 
@@ -2023,6 +2044,7 @@ class Win(QMainWindow):
 
     def toggle_view(self):
         self.set_view("list" if self.deleg.grid else "grid")
+        fade_widget(self.list, 130, 0.9)
 
     def toggle_tree(self):
         self.tree.setVisible(not self.tree.isVisible())
@@ -2432,21 +2454,13 @@ class Win(QMainWindow):
         return button
 
     def _fade_in(self, widget):
-        effect = QGraphicsOpacityEffect(widget)
-        effect.setOpacity(0.7)
-        widget.setGraphicsEffect(effect)
-        anim = QPropertyAnimation(effect, b"opacity", widget)
-        anim.setDuration(150)
-        anim.setStartValue(0.7)
-        anim.setEndValue(1.0)
-        widget._fade_anim = anim
+        fade_widget(widget, 150, 0.7)
 
-        def done():
-            widget.setGraphicsEffect(None)
-            anim.deleteLater()
-
-        anim.finished.connect(done)
-        anim.start()
+    def _animate_tab(self, i):
+        widget = self.book_tabs.widget(i)
+        if widget is None or widget.property("panel_key") is not None:
+            return  # панель уже проявляется сама
+        fade_widget(widget, 120, 0.92)
 
     def close_dialog_tab(self, dlg):
         idx = self.book_tabs.indexOf(dlg)
