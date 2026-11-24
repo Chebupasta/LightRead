@@ -208,7 +208,7 @@ QSplitter::handle:hover { background: %(accent.default)s; }
 QWidget#TuneBar { background: %(bg.panel)s; border-top: 1px solid %(border.subtle)s; }
 QWidget#TuneBar QLabel { color: %(text.tertiary)s; font-size: %(font.sm)s; }
 QWidget#TuneBar QComboBox, QWidget#TuneBar QSpinBox, QWidget#TuneBar QFontComboBox {
-  background: %(bg.raised)s; border: 1px solid transparent;
+  background: transparent; border: 1px solid transparent;
   border-radius: %(radius.sm)s; padding: 2px 8px;
   min-height: 26px; max-height: 26px; font-size: %(font.md)s;
 }
@@ -217,7 +217,7 @@ QWidget#TuneBar QFontComboBox:hover { background: %(bg.hover)s; border-color: tr
 QWidget#TuneBar QSlider { max-width: 92px; min-height: 26px; }
 QWidget#TuneBar QCheckBox { min-height: 26px; spacing: 6px; font-size: %(font.md)s; }
 QWidget#TuneBar QPushButton {
-  background: %(bg.raised)s; border: 1px solid transparent;
+  background: transparent; border: 1px solid transparent;
   padding: 4px 12px; min-height: 26px; border-radius: %(radius.sm)s;
 }
 QWidget#TuneBar QPushButton:focus { border-color: transparent; }

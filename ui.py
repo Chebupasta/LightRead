@@ -1809,7 +1809,6 @@ class Win(QMainWindow):
         props = QShortcut(QKeySequence("Alt+Enter"), self.library_page, self.file_properties)
         props.setContext(Qt.WidgetWithChildrenShortcut)
         self.book_tabs.currentChanged.connect(self.on_tab_changed)
-        self.book_tabs.currentChanged.connect(self._animate_tab)
         self.pb = QProgressBar(); self.pb.setMaximumWidth(220); self.pb.hide()
         self.statusBar().addPermanentWidget(self.pb)
 
@@ -2044,7 +2043,6 @@ class Win(QMainWindow):
 
     def toggle_view(self):
         self.set_view("list" if self.deleg.grid else "grid")
-        fade_widget(self.list, 200, 0.6)
 
     def toggle_tree(self):
         self.tree.setVisible(not self.tree.isVisible())
@@ -2455,12 +2453,6 @@ class Win(QMainWindow):
 
     def _fade_in(self, widget):
         fade_widget(widget, 220, 0.5)
-
-    def _animate_tab(self, i):
-        widget = self.book_tabs.widget(i)
-        if widget is None or widget.property("panel_key") is not None:
-            return  # панель уже проявляется сама
-        fade_widget(widget, 220, 0.6)
 
     def close_dialog_tab(self, dlg):
         idx = self.book_tabs.indexOf(dlg)
