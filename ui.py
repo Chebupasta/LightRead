@@ -22,6 +22,7 @@ from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENT
 from formats import ALL_EXTS, open_source, open_source_no_cover, read_meta, plain, FormatError
 from library import Library
 from reader import Reader
+from i18n import apply_language, ui_text
 from views import PDF_LOCK
 from theming import apply_theme, chrome
 
@@ -562,6 +563,7 @@ SCHEMA_UI = [
               ("theme_day_start", "Светлая с часа", "int", 0, 23),
               ("theme_night_start", "Тёмная с часа", "int", 0, 23)]),
     ("Управление", [
+        ("language", "Язык интерфейса", "choice", ["Русский", "English"]),
         ("tap_zones", "Тап-зоны", "bool"), ("wheel_pages", "Колесо листает страницы", "bool"),
         ("swipe_nav", "Горизонтальный свайп листает страницы", "bool"),
         ("autoscroll", "Скорость автопрокрутки", "int", 5, 200),
@@ -625,9 +627,14 @@ class SettingsDialog(QDialog):
                     e.toggled.connect(lambda v, k=key: self.set(k, v))
                 elif kind == "choice":
                     e = QComboBox(); e.addItems([str(x) for x in row[3]])
-                    e.setCurrentText(str(val))
-                    e.currentTextChanged.connect(
-                        lambda v, k=key, o=row[3]: self.set(k, type(o[0])(v) if isinstance(o[0], (int, float)) else v))
+                    if key == "language":
+                        e.setCurrentText("Русский" if val == "ru" else "English")
+                        e.currentTextChanged.connect(
+                            lambda v, k=key: self.set(k, "ru" if v == "Русский" else "en"))
+                    else:
+                        e.setCurrentText(str(val))
+                        e.currentTextChanged.connect(
+                            lambda v, k=key, o=row[3]: self.set(k, type(o[0])(v) if isinstance(o[0], (int, float)) else v))
                 elif kind == "font":
                     e = QFontComboBox(); e.setCurrentFont(QFont(val or QFont().family()))
                     e.currentFontChanged.connect(lambda f, k=key: self.set(k, f.family()))
@@ -1486,7 +1493,7 @@ class HomePage(QWidget):
     def refresh(self):
         lib = self.win.lib
         total = lib.q("SELECT count(*) c FROM books")[0]["c"]
-        self.page_hint.setText(f"{total} {_book_word(total)} в библиотеке · прогресс чтения")
+        self.page_hint.setText(f"{total} {ui_text(_book_word(total))} {ui_text('в библиотеке · прогресс чтения')}")
         self.stat_values["books"].setText(str(total))
         read_count = lib.q("SELECT count(*) c FROM books WHERE progress>=0.995 OR status='read'")[0]["c"]
         reading_count = lib.q(
@@ -1524,7 +1531,7 @@ class HomePage(QWidget):
             source = q["title"] or "Без названия"
             self._quote_text = f"«{text}»\n— {source}"
             self.quote_text.setText(self._quote_text)
-            self.quote_src.setText("Цитата дня · случайная из ваших заметок")
+            self.quote_src.setText(ui_text("Цитата дня · случайная из ваших заметок"))
             self.quote.show()
         else:
             self._quote_text = ""
@@ -1542,7 +1549,7 @@ class HomePage(QWidget):
             name = r["title"] or "Без названия"
             author = f" · {r['author']}" if r["author"] else ""
             self.cont_label.setText(f"{name}{author}")
-            self.cont_meta.setText(f"{r['progress'] * 100:.0f}% прочитано")
+            self.cont_meta.setText(f"{r['progress'] * 100:.0f}% {ui_text('прочитано')}")
             self.cont_bar.setRange(0, 100); self.cont_bar.setValue(int(r["progress"] * 100))
             self.cont_cover.setPixmap(self._cover(r["id"], name, 80, 114))
             self.cont.show()
@@ -1930,6 +1937,7 @@ class Win(QMainWindow):
             QTimer.singleShot(2000, lambda: self.check_updates(quiet=True))
         if S.get("auto_git_update") and S.get("update_repo"):
             QTimer.singleShot(2500, lambda: self.auto_git_update(quiet=True))
+        apply_language(self)
 
     def restore_session(self):
         ids = [int(x) for x in S.get("session_tabs", []) if str(x).isdigit()]
@@ -2831,6 +2839,7 @@ class Win(QMainWindow):
         self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide,
                                              self._tab_close_button(dlg, self.close_dialog_tab))
         self.book_tabs.setCurrentIndex(idx)
+        apply_language(dlg)
         self._fade_in(dlg)
 
         def finish(code):
@@ -2853,6 +2862,9 @@ class Win(QMainWindow):
             S.update(dlg.s); S.save()
             self.apply_auto_theme()
             apply_theme(S["theme"], force=True)
+            apply_language(self)
+            for reader in self.readers:
+                apply_language(reader)
             self.set_view(S["view"]); self.reload()
 
         self.open_dialog_tab(d, "Настройки", accepted)

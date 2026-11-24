@@ -31,6 +31,7 @@ import services
 import theming
 import ui
 import views
+import i18n
 import reader as reader_mod
 from reader import Reader
 
@@ -990,6 +991,17 @@ class TestHomeAndTabs(unittest.TestCase):
         self.win.notify("тест")
         self.assertTrue(self.win.toast.isVisible())
         self.assertEqual(self.win.toast.label.text(), "тест")
+
+    def test_language_switch(self):
+        common.S["language"] = "en"
+        try:
+            i18n.apply_language(self.win)
+            texts = [self.win.book_tabs.tabText(i) for i in range(self.win.book_tabs.count())]
+            self.assertIn("Home", texts)
+            self.assertIn("Library", texts)
+        finally:
+            common.S["language"] = "ru"
+            i18n.apply_language(self.win)
 
     def test_auto_theme(self):
         with settings(auto_theme=True, theme_day_start=0, theme_night_start=0):

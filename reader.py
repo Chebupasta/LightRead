@@ -16,6 +16,7 @@ from common import S, HL, THEMES, theme, norm_theme, hms, ACCENT, PDF_LOCK, OFFI
 from formats import open_source, open_source_no_cover, open_exact_source, FormatError, plain
 from views import ReflowView, FixedView, pick_font, chapter_text
 from services import Tts, StarDict
+from i18n import apply_language
 from theming import apply_theme, chrome
 
 
@@ -347,6 +348,7 @@ class Reader(QMainWindow):
         self._last_page = self.view.page
         QTimer.singleShot(60, self.on_changed)
         self.view.setFocus()
+        apply_language(self)
 
     def _office_pdf(self, path):
         from formats_extra import office_faithful_cached

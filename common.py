@@ -199,7 +199,7 @@ DEFAULTS = dict(
     office_pdf=True, office_cache_days=30, office_cache_mb=512, swipe_nav=True,
     auto_theme=False, theme_day_start=7, theme_night_start=20,
     pomodoro_work=25, pomodoro_break=5,
-    auto_git_update=False, update_repo="",
+    auto_git_update=False, update_repo="", language="ru",
 )
 
 ACCENTS = {
