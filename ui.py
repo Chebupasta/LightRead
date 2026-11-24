@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
                                QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox, QFontComboBox,
                                QLabel, QFileDialog, QMessageBox, QMenu, QInputDialog, QProgressBar,
                                QListWidget, QListWidgetItem, QPushButton, QFrame, QToolButton, QTabBar, QAbstractItemView,
-                                QGraphicsOpacityEffect, QApplication, QStackedWidget, QScrollArea)
+                                QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QApplication, QStackedWidget, QScrollArea)
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
@@ -530,6 +530,7 @@ class SettingsDialog(QDialog):
         scroller = QScrollArea()
         scroller.setWidgetResizable(True)
         scroller.setFrameShape(QFrame.Shape.NoFrame)
+        scroller.verticalScrollBar().setSingleStep(16)
         scroller.setWidget(tabs)
         lay.addWidget(scroller, 1)
         for title, rows in SCHEMA_UI:
@@ -1173,6 +1174,7 @@ class HomePage(QWidget):
         ch.addWidget(btn)
         self.cont.hide()
         root.addWidget(self.cont)
+        self._card_shadow(self.cont)
 
         stats_title = QLabel("Статистика")
         stats_title.setObjectName("SectionTitle")
@@ -1202,6 +1204,7 @@ class HomePage(QWidget):
         self.heat.setMaximumHeight(96)
         sl.addWidget(self.heat)
         root.addWidget(self.stats)
+        self._card_shadow(self.stats)
 
         self.goal = QFrame(); self.goal.setObjectName("GoalCard")
         gl = QHBoxLayout(self.goal); gl.setContentsMargins(14, 12, 14, 12)
@@ -1223,10 +1226,18 @@ class HomePage(QWidget):
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.verticalScrollBar().setSingleStep(16)
         scroll.setWidget(inner)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def _card_shadow(self, widget, blur=14):
+        effect = QGraphicsDropShadowEffect(widget)
+        effect.setBlurRadius(blur)
+        effect.setOffset(0, 2)
+        effect.setColor(QColor(0, 0, 0, 38))
+        widget.setGraphicsEffect(effect)
 
     def _cover(self, bid, title, w, h):
         """Обложка книги или аккуратная заглушка с первой буквой названия."""
@@ -1613,6 +1624,7 @@ class Win(QMainWindow):
             QTimer.singleShot(0, lambda: self.notify(msg))
         self.reader = None          # последняя активная книга
         self.readers = []           # все открытые книги (многодокументный режим)
+        self._opening_bids = set()  # защита от повторного открытия во время вложенного event loop
         self.flt = None
         self.scanner = None
         self.covers = None
@@ -2160,24 +2172,30 @@ class Win(QMainWindow):
             if getattr(r, "bid", None) == bid:
                 self.book_tabs.setCurrentWidget(r)
                 return
+        if bid in self._opening_bids:
+            return
+        self._opening_bids.add(bid)
         try:
-            r = Reader(self.lib, row)
-        except FormatError as e:
-            QMessageBox.warning(self, "Не удалось открыть", str(e)); return
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка открытия", f"{type(e).__name__}: {e}"); return
-        r.setAttribute(Qt.WA_DeleteOnClose)
-        r.closed.connect(self.reader_closed)
-        r.destroyed.connect(lambda _=None, rr=r: self.reader_closed(rr))
-        self.readers.append(r)
-        self.reader = r
-        title = (row["title"] or "Без названия")[:40]
-        self.book_tabs.addTab(r, title)
-        idx = self.book_tabs.count() - 1
-        self.book_tabs.tabBar().setTabButton(
-            idx, QTabBar.RightSide,
-            self._tab_close_button(r, lambda rr: self.close_tab(self.book_tabs.indexOf(rr))))
-        self.book_tabs.setCurrentWidget(r)
+            try:
+                r = Reader(self.lib, row)
+            except FormatError as e:
+                QMessageBox.warning(self, "Не удалось открыть", str(e)); return
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка открытия", f"{type(e).__name__}: {e}"); return
+            r.setAttribute(Qt.WA_DeleteOnClose)
+            r.closed.connect(self.reader_closed)
+            r.destroyed.connect(lambda _=None, rr=r: self.reader_closed(rr))
+            self.readers.append(r)
+            self.reader = r
+            title = (row["title"] or "Без названия")[:40]
+            self.book_tabs.addTab(r, title)
+            idx = self.book_tabs.count() - 1
+            self.book_tabs.tabBar().setTabButton(
+                idx, QTabBar.RightSide,
+                self._tab_close_button(r, lambda rr: self.close_tab(self.book_tabs.indexOf(rr))))
+            self.book_tabs.setCurrentWidget(r)
+        finally:
+            self._opening_bids.discard(bid)
 
     def reader_fullscreen(self, r=None):
         if getattr(self, "_reading_full", False):
@@ -2411,6 +2429,23 @@ class Win(QMainWindow):
         button.clicked.connect(lambda _=False, w=widget: callback(w))
         return button
 
+    def _fade_in(self, widget):
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(0.7)
+        widget.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", widget)
+        anim.setDuration(150)
+        anim.setStartValue(0.7)
+        anim.setEndValue(1.0)
+        widget._fade_anim = anim
+
+        def done():
+            widget.setGraphicsEffect(None)
+            anim.deleteLater()
+
+        anim.finished.connect(done)
+        anim.start()
+
     def close_dialog_tab(self, dlg):
         idx = self.book_tabs.indexOf(dlg)
         if idx < 0:
@@ -2424,7 +2459,15 @@ class Win(QMainWindow):
             self.book_tabs.removeTab(idx)
 
     def open_dialog_tab(self, dlg, title, on_accept=None):
-        """Показать диалог вкладкой главного окна, а не отдельным окном."""
+        """Показать диалог вкладкой главного окна, не открывая копию существующей."""
+        key = f"{dlg.metaObject().className()}|{title}"
+        for i in range(self.book_tabs.count()):
+            existing = self.book_tabs.widget(i)
+            if existing is not dlg and existing is not None and existing.property("panel_key") == key:
+                dlg.deleteLater()
+                self.book_tabs.setCurrentIndex(i)
+                return existing
+        dlg.setProperty("panel_key", key)
         prev = self.book_tabs.currentIndex()
         dlg.setWindowFlags(Qt.Widget)
         dlg.setAttribute(Qt.WA_DeleteOnClose, False)
@@ -2432,6 +2475,7 @@ class Win(QMainWindow):
         self.book_tabs.tabBar().setTabButton(idx, QTabBar.RightSide,
                                              self._tab_close_button(dlg, self.close_dialog_tab))
         self.book_tabs.setCurrentIndex(idx)
+        self._fade_in(dlg)
 
         def finish(code):
             if code == QDialog.Accepted and on_accept:
