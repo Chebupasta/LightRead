@@ -512,6 +512,7 @@ class SettingsDialog(QDialog):
         self.tabs = tabs = QTabWidget(); lay.addWidget(tabs)
         for title, rows in SCHEMA_UI:
             w = QWidget(); fl = QFormLayout(w); fl.setSpacing(9)
+            fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
             for row in rows:
                 key, label, kind = row[0], row[1], row[2]
                 val = self.s.get(key)
@@ -561,7 +562,10 @@ class SettingsDialog(QDialog):
                 else:
                     e = QLineEdit(str(val)); e.textChanged.connect(lambda v, k=key: self.set(k, v))
                 fl.addRow(label, e)
-            tabs.addTab(w, title)
+            holder = QWidget()
+            hl = QHBoxLayout(holder); hl.setContentsMargins(24, 18, 24, 18)
+            hl.addStretch(1); hl.addWidget(w); hl.addStretch(1)
+            tabs.addTab(holder, title)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
         bb.button(QDialogButtonBox.Ok).setDefault(True)
@@ -1153,6 +1157,8 @@ class HomePage(QWidget):
         self.stats = QFrame(); self.stats.setObjectName("StatsCard")
         sl = QVBoxLayout(self.stats); sl.setContentsMargins(16, 14, 16, 14); sl.setSpacing(10)
         grid = QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(10)
+        for col in range(4):
+            grid.setColumnStretch(col, 1)
         self.stat_values = {}
         metrics = (("books", "Всего книг"), ("read", "Прочитано"), ("reading", "Читаю сейчас"),
                    ("hours", "Время чтения"), ("pages", "Страниц"), ("streak", "Серия дней"),
@@ -1627,13 +1633,13 @@ class Win(QMainWindow):
         act("Обложки", self.fetch_covers)
         act("Папки", self.folders)
         tb.addSeparator()
-        self.q = QLineEdit(); self.q.setPlaceholderText("Поиск: название, автор, серия, аннотация, заметки…")
+        self.q = QLineEdit(); self.q.setPlaceholderText("Поиск по библиотеке…")
         self.q.setAccessibleName("Поиск по библиотеке")
         self._search_timer = QTimer(self); self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(180)
         self._search_timer.timeout.connect(self.reload)
         self.q.textChanged.connect(lambda _: self._search_timer.start())
-        self.q.setMaximumWidth(340); tb.addWidget(self.q)
+        self.q.setMaximumWidth(420); tb.addWidget(self.q)
         self.sort = QComboBox()
         for k, v in [("added_desc", "Новые"), ("title", "Название"), ("author", "Автор"),
                      ("read", "Недавно читал"), ("progress", "Прогресс"), ("series", "Серия"),
@@ -2552,6 +2558,7 @@ Ctrl + сведение — зум · перетаскивание — пано�
 </div>""")
         label.setObjectName("ShortcutSheet")
         label.setWordWrap(True)
+        label.setMaximumWidth(900)
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         label.setAlignment(Qt.AlignTop)
         lay.addWidget(label)
