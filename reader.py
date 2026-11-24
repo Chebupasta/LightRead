@@ -68,8 +68,8 @@ class TuneBar(QWidget):
         self.widgets = {}
         self._labels = []
         root = QHBoxLayout(self)
-        root.setContentsMargins(10, 7, 10, 7)
-        root.setSpacing(12)
+        root.setContentsMargins(8, 5, 8, 5)
+        root.setSpacing(10)
 
         def cell(label, w, key):
             if root.count():
@@ -394,8 +394,9 @@ class Reader(QMainWindow):
         tb = QToolBar("Чтение"); tb.setMovable(False); self.addToolBar(tb)
         self.tb_main = tb
 
-        def act(text, slot, sc=None, check=False):
-            a = QAction(text, self)
+        def act(text, slot, sc=None, check=False, short=None):
+            a = QAction(short or text, self)
+            a.setToolTip(text + (f"  ({sc})" if sc else ""))
             if sc:
                 a.setShortcut(QKeySequence(sc))
             a.setCheckable(check)
@@ -405,25 +406,25 @@ class Reader(QMainWindow):
 
         act("Библиотека", self.close, "Ctrl+W")
         tb.addSeparator()
-        act("◀ Глава", lambda: self.chapter_step(-1), "Ctrl+Left")
-        act("Глава ▶", lambda: self.chapter_step(1), "Ctrl+Right")
+        act("Предыдущая глава", lambda: self.chapter_step(-1), "Ctrl+Left", short="◀")
+        act("Следующая глава", lambda: self.chapter_step(1), "Ctrl+Right", short="▶")
         tb.addSeparator()
         self.a_toc = act("Содержание", self.toggle_panel, "F4", True)
         act("Поиск", lambda: self.open_panel(3), "Ctrl+F")
-        act("Результат ◀", lambda: self.search_step(-1), "Shift+F3")
-        act("Результат ▶", lambda: self.search_step(1), "F3")
+        act("Предыдущее совпадение", lambda: self.search_step(-1), "Shift+F3", short="◀ совп")
+        act("Следующее совпадение", lambda: self.search_step(1), "F3", short="совп ▶")
         act("Закладка", self.add_mark, "Ctrl+B")
         act("Заметки", lambda: self.open_panel(2), "Ctrl+N")
         self.a_tts = act("Озвучка", self.tts_toggle, "Ctrl+T", True)
-        self.a_auto = act("Автопрокрутка", self.auto_toggle, "Ctrl+R", True)
+        self.a_auto = act("Автопрокрутка", self.auto_toggle, "Ctrl+R", True, short="Авто")
         tb.addSeparator()
         act("A−", lambda: self.font_step(-1), "Ctrl+-")
         act("A+", lambda: self.font_step(1), "Ctrl++")
         act("Тема", self.cycle_theme, "F5")
         self.a_tune = act("Настройка", self.toggle_tune, "F6", True)
         self.a_tune.setChecked(bool(self.st["tune_visible"]))
-        self.a_full = act("Полный экран", self.fullscreen, "F11", True)
-        self.a_focus = act("Фокус-режим", self.toggle_chrome, "F10", True)
+        self.a_full = act("Полный экран", self.fullscreen, "F11", True, short="F11")
+        self.a_focus = act("Фокус-режим", self.toggle_chrome, "F10", True, short="Фокус")
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, self.quick_note)
         QShortcut(QKeySequence("Ctrl+Home"), self, lambda: self.view.first())
         QShortcut(QKeySequence("Ctrl+End"), self, lambda: self.view.last())

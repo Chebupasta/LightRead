@@ -34,11 +34,11 @@ QToolTip {
 
 /* ── Меню ─────────────────────────────────────────────────────────── */
 QMenuBar {
-  background: %(bg.panel)s; padding: 2px %(space.sm)s;
+  background: %(bg.panel)s; padding: 1px %(space.sm)s;
   border-bottom: 1px solid %(border.subtle)s;
 }
 QMenuBar::item {
-  padding: 5px 10px; border-radius: %(radius.sm)s;
+  padding: 3px 8px; border-radius: %(radius.sm)s;
   background: transparent; color: %(text.secondary)s;
 }
 QMenuBar::item:selected { background: %(bg.hover)s; color: %(text.primary)s; }
@@ -55,7 +55,7 @@ QMenu::separator { height: 1px; background: %(border.subtle)s; margin: 4px 6px; 
 /* ── Панели инструментов ──────────────────────────────────────────── */
 QToolBar {
   background: %(bg.panel)s; border: 0; border-bottom: 1px solid %(border.subtle)s;
-  padding: 4px %(space.md)s; spacing: 2px;
+  padding: 2px %(space.md)s; spacing: 1px;
 }
 QToolButton {
   background: transparent; color: %(text.secondary)s; padding: 5px 9px;
@@ -96,7 +96,7 @@ QTabWidget::pane {
 QTabBar { background: transparent; }
 QTabBar::tab {
   background: transparent; color: %(text.tertiary)s;
-  padding: 6px 8px; min-width: 38px; margin: 0;
+  padding: 4px 8px; min-width: 38px; margin: 0;
   border: 0; border-bottom: 2px solid transparent;
   border-right: 1px solid %(border.subtle)s;
   border-radius: %(radius.sm)s %(radius.sm)s 0 0;
@@ -210,15 +210,15 @@ QWidget#TuneBar QLabel { color: %(text.tertiary)s; font-size: %(font.sm)s; }
 QWidget#TuneBar QComboBox, QWidget#TuneBar QSpinBox, QWidget#TuneBar QFontComboBox {
   background: transparent; border: 1px solid transparent;
   border-radius: %(radius.sm)s; padding: 2px 8px;
-  min-height: 26px; max-height: 26px; font-size: %(font.md)s;
+  min-height: 24px; max-height: 24px; font-size: %(font.md)s;
 }
 QWidget#TuneBar QComboBox:hover, QWidget#TuneBar QSpinBox:hover,
 QWidget#TuneBar QFontComboBox:hover { background: %(bg.hover)s; border-color: transparent; }
-QWidget#TuneBar QSlider { max-width: 92px; min-height: 26px; }
-QWidget#TuneBar QCheckBox { min-height: 26px; spacing: 6px; font-size: %(font.md)s; }
+QWidget#TuneBar QSlider { max-width: 92px; min-height: 24px; }
+QWidget#TuneBar QCheckBox { min-height: 24px; spacing: 6px; font-size: %(font.md)s; }
 QWidget#TuneBar QPushButton {
   background: transparent; border: 1px solid transparent;
-  padding: 4px 12px; min-height: 26px; border-radius: %(radius.sm)s;
+  padding: 3px 10px; min-height: 24px; border-radius: %(radius.sm)s;
 }
 QWidget#TuneBar QPushButton:focus { border-color: transparent; }
 QWidget#TuneBar QSlider:focus, QWidget#TuneBar QCheckBox:focus { border: 0; }

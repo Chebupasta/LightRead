@@ -1530,7 +1530,7 @@ class BrowserTabs(QWidget):
         self._bar.setUsesScrollButtons(True)
         self._bar.setElideMode(Qt.ElideRight)
         self._bar.setTabsClosable(True)
-        self._bar.setFixedHeight(38)
+        self._bar.setFixedHeight(32)
         self._bar.currentChanged.connect(self._on_current)
         self._bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
         self._bar.tabMoved.connect(self._on_moved)
@@ -1688,6 +1688,7 @@ class Win(QMainWindow):
 
     def _build(self):
         tb = QToolBar("Библиотека"); tb.setMovable(False); self.addToolBar(tb)
+        self.tb_lib = tb
 
         def act(t, s, sc=None):
             a = QAction(t, self)
@@ -2301,6 +2302,8 @@ class Win(QMainWindow):
         self.toast.notify(text)
 
     def on_tab_changed(self, i):
+        if hasattr(self, "tb_lib"):
+            self.tb_lib.setVisible(i <= LIB_TAB)
         if self._history_lock:
             return
         if not self._tab_history or self._tab_history[self._history_pos] != i:
