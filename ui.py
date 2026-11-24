@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QMainWindow, QListView, QStyledItemDelegate, QSty
 
 from common import (S, DATA, DB, COVERS, THEMES, VER, SEMANTIC, ACCENTS, PRESENTATION_FMTS,
                     human, hms, norm, theme)
-from formats import ALL_EXTS, open_source, open_source_no_cover, read_meta, FormatError
+from formats import ALL_EXTS, open_source, open_source_no_cover, read_meta, plain, FormatError
 from library import Library
 from reader import Reader
 from views import PDF_LOCK
@@ -153,6 +153,37 @@ class _UpdateWorker(QThread):
             self.done.emit(Update(self.url).check())
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
+
+
+class _GlobalSearchWorker(QThread):
+    """Поиск фразы по тексту всех книг без блокировки GUI."""
+    done = Signal(object)
+
+    def __init__(self, query, rows, parent=None):
+        super().__init__(parent)
+        self.query = query.strip().lower()
+        self.rows = rows
+
+    def run(self):
+        results = []
+        q = self.query
+        for bid, path, title in self.rows:
+            try:
+                src = open_source_no_cover(path)
+                for i in range(src.count):
+                    text = plain(src.chapter(i).html)
+                    pos = text.lower().find(q)
+                    if pos >= 0:
+                        start, end = max(0, pos - 60), min(len(text), pos + len(q) + 120)
+                        snippet = " ".join(text[start:end].split())
+                        results.append((bid, i, title, snippet))
+                        break
+                src.close()
+            except Exception:
+                pass
+            if len(results) >= 100:
+                break
+        self.done.emit(results)
 
 
 class CoverWorker(QThread):
@@ -1722,6 +1753,7 @@ class Win(QMainWindow):
         m.addAction("Сканировать", self.scan)
         m.addAction("Догрузить обложки", self.fetch_covers)
         m.addAction("Все заметки…", self.all_notes)
+        m.addAction("Искать по всем книгам…", self.global_search, QKeySequence("Ctrl+Shift+F"))
         m.addAction("Свойства файла…", self.file_properties, QKeySequence("Alt+Enter"))
         if S.get("show_network"):
             m.addAction("OPDS-каталоги…", self.opds)
@@ -2257,6 +2289,66 @@ class Win(QMainWindow):
             return
         self.open_book(bid)
 
+    def global_search(self):
+        """Поиск по содержимому всех книг с переходом к найденному месту."""
+        panel = QDialog(self)
+        panel.setProperty("panel_key", "GlobalSearch")
+        panel.setAccessibleName("Глобальный поиск по книгам")
+        lay = QVBoxLayout(panel)
+        edit = QLineEdit(); edit.setPlaceholderText("Фраза во всех книгах…")
+        edit.setAccessibleName("Поисковая фраза")
+        results = QListWidget(); results.setAccessibleName("Результаты поиска")
+        status = QLabel("Введите минимум 2 символа"); status.setObjectName("HomeSubtle")
+        lay.addWidget(edit); lay.addWidget(results, 1); lay.addWidget(status)
+
+        debounce = QTimer(panel); debounce.setSingleShot(True); debounce.setInterval(320)
+
+        def show(items):
+            results.clear()
+            for bid, ch, title, snippet in items:
+                it = QListWidgetItem(f"{title} · гл. {ch + 1}\n{snippet}")
+                it.setData(Qt.UserRole, (bid, ch, edit.text().strip()))
+                results.addItem(it)
+            status.setText(f"Найдено: {len(items)}" if edit.text().strip() else "Введите минимум 2 символа")
+
+        def start():
+            query = edit.text().strip()
+            if len(query) < 2:
+                results.clear(); status.setText("Введите минимум 2 символа")
+                return
+            worker = getattr(self, "_gsearch_worker", None)
+            if worker is not None and worker.isRunning():
+                status.setText("Ищу по всем книгам…")
+                return
+            rows = [(r["id"], r["path"], r["title"] or "Без названия")
+                    for r in self.lib.q("SELECT id,path,title FROM books")]
+            status.setText("Ищу по всем книгам…")
+            worker = _GlobalSearchWorker(query, rows, self)
+            self._gsearch_worker = worker
+            worker.done.connect(show)
+            worker.start()
+
+        debounce.timeout.connect(start)
+        edit.textChanged.connect(lambda: debounce.start())
+        results.itemDoubleClicked.connect(
+            lambda it: self._open_search_hit(it.data(Qt.UserRole)))
+        self.open_dialog_tab(panel, "Поиск по всем книгам")
+        edit.setFocus()
+
+    def _open_search_hit(self, data):
+        bid, ch, query = data
+        self.open_book(bid)
+        QTimer.singleShot(150, lambda: self._apply_search_hit(ch, query))
+
+    def _apply_search_hit(self, ch, query):
+        r = self.reader
+        if r is None or not hasattr(r, "sq"):
+            return
+        if not r.fixed and hasattr(r.view, "load"):
+            r.view.load(max(0, ch), 0)
+        r.sq.setText(query)
+        r.search()
+
     def command_palette(self):
         d = CommandPalette(self)
         w = self
@@ -2620,7 +2712,7 @@ F1 — справка · Ctrl+K — команды · Ctrl+1…9 — вклад�
 Ctrl+Shift+T — вернуть вкладку · Alt+←/→ — история вкладок ·
 Средняя кнопка по вкладке — закрыть · двойной клик по пустому месту — главная
 <h3>Библиотека</h3>
-Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+D — вид ·
+Ctrl+O — открыть · F5 — сканировать · Ctrl+L / Ctrl+F — поиск · Ctrl+Shift+F — поиск по всем книгам · Ctrl+D — вид ·
 F9 — дерево библиотеки · Alt+Enter — свойства файла
 <h3>Чтение</h3>
 Space / PgDn — вперёд · PgUp — назад · Home / End — начало / конец текста ·

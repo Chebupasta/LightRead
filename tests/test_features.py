@@ -579,6 +579,16 @@ class TestRobustness(unittest.TestCase):
         lib.remove(bid)
         self.assertEqual(lib.q("SELECT count(*) c FROM book_tag")[0]["c"], 0)
 
+    def test_global_search_worker(self):
+        from PySide6.QtCore import QEventLoop, QTimer
+        book = make_book(TMP / "gsearch.fb2", "Поисковая")
+        worker = ui._GlobalSearchWorker("Привет", [(777, str(book), "Поисковая")])
+        loop = QEventLoop(); results = []
+        worker.done.connect(lambda items: (results.append(items), loop.quit()))
+        QTimer.singleShot(3000, loop.quit)
+        worker.start(); loop.exec(); worker.wait(500)
+        self.assertTrue(results and any(row[0] == 777 for row in results[0]))
+
     def test_settings_dialog_has_tabs(self):
         dlg = ui.SettingsDialog(dict(common.S))
         try:
